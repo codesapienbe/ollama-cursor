@@ -1,10 +1,13 @@
 /*  UI: simple Q&A command.
- *  - Shows InputBox → streams answer in Notification.
+ *  - Shows InputBox → streams answer to timestamped .md file.
  *  - Keeps zero domain logic (delegates to OllamaClient).       */
 
 import * as vscode     from 'vscode';
+import * as path       from 'path';
+import * as fs         from 'fs';
 import { OllamaClient } from '../client';
 import { OllamaInstaller } from './ollamaInstaller';
+import { Settings } from '../settings';
 
 export class AskAICommand {
   constructor(private readonly client: OllamaClient) {}
@@ -36,24 +39,190 @@ export class AskAICommand {
     const prompt = `${question}\n\n${editor.document.getText()}`;
     const abort  = new AbortController();
 
+    // Create output file
+    const outputFile = await this._createOutputFile(question);
+    if (!outputFile) return;
+
     await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: 'Ollama', cancellable: true },
+      { location: vscode.ProgressLocation.Window, title: 'Ollama: Generating response...', cancellable: true },
       async (progress, token) => {
         token.onCancellationRequested(() => abort.abort());
 
-        let answer = '';
         try {
-          answer = await this.client.generate({ prompt, stream: true }, abort.signal);
-          progress.report({ message: answer.slice(-80) });
-          vscode.window.showInformationMessage(answer);
+          await this._streamToFile(outputFile, prompt, question, abort.signal, progress);
         } catch (err) {
           if (!abort.signal.aborted) {
             const errorMsg = this._formatErrorMessage(err);
+            await this._appendToFile(outputFile, `\n\n**Error:** ${errorMsg}\n`);
             vscode.window.showErrorMessage(`Ollama error: ${errorMsg}`);
           }
         }
       },
     );
+  }
+
+  private async _createOutputFile(question: string): Promise<string | null> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+      vscode.window.showErrorMessage('No workspace folder open');
+      return null;
+    }
+
+    // Create .ollama directory
+    const ollamaDir = path.join(workspaceFolder.uri.fsPath, '.ollama');
+    if (!fs.existsSync(ollamaDir)) {
+      fs.mkdirSync(ollamaDir, { recursive: true });
+    }
+
+    // Generate timestamp and safe filename
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const safeQuestion = question.slice(0, 50).replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
+    const filename = `${timestamp}_${safeQuestion}.md`;
+    const filePath = path.join(ollamaDir, filename);
+
+    // Create initial file content
+    const initialContent = `# Ollama Response - ${new Date().toLocaleString()}
+
+## Question
+${question}
+
+## Response
+`;
+
+    try {
+      fs.writeFileSync(filePath, initialContent, 'utf8');
+      
+      // Open the file
+      const document = await vscode.workspace.openTextDocument(filePath);
+      await vscode.window.showTextDocument(document, vscode.ViewColumn.Beside);
+      
+      return filePath;
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to create output file: ${error}`);
+      return null;
+    }
+  }
+
+  private async _streamToFile(
+    filePath: string, 
+    prompt: string, 
+    question: string, 
+    abortSignal: AbortSignal,
+    progress: vscode.Progress<{ message?: string; increment?: number }>
+  ): Promise<void> {
+    // Modified client call for streaming to file
+    const settings = new Settings();
+    const requestData = JSON.stringify({
+      model: settings.model,
+      prompt: prompt,
+      temperature: settings.temperature,
+      stream: true,
+      options: {
+        num_predict: settings.maxTokens,
+        num_ctx: settings.contextLength,
+      },
+    });
+
+    const http = require('http');
+    const options = {
+      hostname: 'localhost',
+      port: 11434,
+      path: '/api/generate',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(requestData)
+      }
+    };
+
+    return new Promise<void>((resolve, reject) => {
+      const req = http.request(options, (res: any) => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`Ollama: HTTP ${res.statusCode} ${res.statusMessage}`));
+          return;
+        }
+
+        let responseData = '';
+        let fullResponse = '';
+        let wordCount = 0;
+
+        res.on('data', (chunk: Buffer) => {
+          responseData += chunk.toString();
+          
+          const lines = responseData.split('\n');
+          responseData = lines.pop() || '';
+          
+          for (const line of lines) {
+            if (line.trim()) {
+              try {
+                const parsed = JSON.parse(line);
+                if (parsed.response) {
+                  fullResponse += parsed.response;
+                  
+                  // Update progress and append to file in chunks
+                  wordCount += parsed.response.split(' ').length;
+                  progress.report({ 
+                    message: `Generated ${wordCount} words...` 
+                  });
+                  
+                  // Append to file immediately for real-time viewing
+                  this._appendToFile(filePath, parsed.response);
+                }
+                if (parsed.done) {
+                  // Add final newlines and timestamp
+                  this._appendToFile(filePath, `\n\n---\n*Generated at ${new Date().toLocaleString()}*\n`);
+                  resolve();
+                  return;
+                }
+              } catch (e) {
+                // Ignore JSON parsing errors for partial responses
+              }
+            }
+          }
+        });
+
+        res.on('end', () => {
+          if (fullResponse) {
+            resolve();
+          } else {
+            reject(new Error('No response received from Ollama'));
+          }
+        });
+
+        res.on('error', (err: Error) => {
+          reject(err);
+        });
+      });
+
+      req.on('error', (err: Error) => {
+        reject(new Error(`Failed to connect to Ollama: ${err.message}`));
+      });
+
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Request to Ollama timed out'));
+      });
+
+      // Handle abort signal
+      if (abortSignal) {
+        abortSignal.addEventListener('abort', () => {
+          req.destroy();
+          reject(new Error('Request was aborted'));
+        });
+      }
+
+      req.setTimeout(settings.timeoutMs);
+      req.write(requestData);
+      req.end();
+    });
+  }
+
+  private _appendToFile(filePath: string, content: string): void {
+    try {
+      fs.appendFileSync(filePath, content, 'utf8');
+    } catch (error) {
+      console.error('Failed to append to file:', error);
+    }
   }
 
   private async _showInstallationOptions(): Promise<void> {
