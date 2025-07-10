@@ -1,5 +1,6 @@
-/*  UI: Chat Widget Provider
- *  - Implements webview-based chat interface similar to GitHub Copilot
+/*  UI: Right Panel Chat Widget Provider
+ *  - Implements webview-based chat interface for the secondary sidebar (right panel)
+ *  - Reuses the same chat functionality as the main sidebar widget
  *  - Provides persistent chat session with message history
  *  - Handles secure message passing between webview and extension
  *  - Maintains conversation context for better AI responses         */
@@ -14,8 +15,8 @@ export interface ChatMessage {
   timestamp: number;
 }
 
-export class ChatWidgetProvider implements vscode.WebviewViewProvider {
-  public static readonly viewType = 'ollama.chatView';
+export class RightPanelWidgetProvider implements vscode.WebviewViewProvider {
+  public static readonly viewType = 'ollama.rightPanelView';
 
   private _view?: vscode.WebviewView;
   private _messages: ChatMessage[] = [];

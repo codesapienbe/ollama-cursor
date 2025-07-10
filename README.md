@@ -9,6 +9,7 @@ This extension integrates with a local Ollama server to provide AI-powered code 
 ## Features
 
 - **Chat Widget**: Persistent chat interface in the sidebar with conversation history
+- **Right Panel Chat**: Chat widget in the secondary sidebar (right panel) next to Cursor AI
 - **Inline Completions**: Ghost-text completions while typing
 - **Command-based Interaction**: Quick Q&A through the command palette
 - **Context-aware**: Automatically includes current file and selection context
@@ -16,12 +17,38 @@ This extension integrates with a local Ollama server to provide AI-powered code 
 
 ## Usage Instructions
 
-### Chat Widget (Recommended)
+### Chat Widget (Left Sidebar)
 
+**Method 1: Activity Bar (Easiest)**
 1. Make sure you have the Ollama server running locally on `http://localhost:11434`.
-2. Click the Ollama Assistant icon in the Activity Bar (left sidebar).
-3. Use the chat interface to ask questions about your code.
-4. The assistant will automatically include context from your current file and selection.
+2. Look for the **🤖 (robot) icon** in the Activity Bar on the left side of VS Code
+3. Click on it to open the "Ollama Assistant" sidebar
+4. The chat widget will appear in the sidebar
+
+**Method 2: Keyboard Shortcut**
+1. Press `Ctrl+Shift+O` (Windows/Linux) or `Cmd+Shift+O` (Mac)
+2. The chat widget will open automatically
+
+**Method 3: Command Palette**
+1. Press `Ctrl+Shift+P` (Windows/Linux) or `Cmd+Shift+P` (Mac)
+2. Type "Ollama: Open Chat Widget"
+3. Select the command and press Enter
+
+### Right Panel Chat (Secondary Sidebar)
+
+**Method 1: Secondary Sidebar**
+1. Look for the **🤖 (robot) icon** in the secondary sidebar (right panel)
+2. Click on it to open the Ollama Chat in the right panel
+3. This appears next to the Cursor AI assistant
+
+**Method 2: Keyboard Shortcut**
+1. Press `Ctrl+Shift+Alt+O` (Windows/Linux) or `Cmd+Shift+Alt+O` (Mac)
+2. The right panel chat will open automatically
+
+**Method 3: Command Palette**
+1. Press `Ctrl+Shift+P` (Windows/Linux) or `Cmd+Shift+P` (Mac)
+2. Type "Ollama: Open in Right Panel"
+3. Select the command and press Enter
 
 ### Command Palette
 
@@ -55,8 +82,30 @@ Example:
 ## Commands
 
 - `Ollama: Ask AI`: Open input box for quick questions
-- `Ollama: Open Chat Widget`: Open the chat widget in the sidebar
+- `Ollama: Open Chat Widget`: Open the chat widget in the left sidebar
+- `Ollama: Open in Right Panel`: Open the chat widget in the right panel
 - `Ollama: Clear Chat`: Clear the chat conversation history
+
+## Keyboard Shortcuts
+
+- `Ctrl+Shift+O` (Windows/Linux) / `Cmd+Shift+O` (Mac): Open Ollama Chat Widget (Left Sidebar)
+- `Ctrl+Shift+Alt+O` (Windows/Linux) / `Cmd+Shift+Alt+O` (Mac): Open Ollama Chat in Right Panel
+
+## Troubleshooting
+
+### Widget Not Opening?
+1. **Check Activity Bar**: Look for the 🤖 icon in the left sidebar
+2. **Check Secondary Sidebar**: Look for the 🤖 icon in the right panel
+3. **Use Keyboard Shortcuts**: 
+   - `Ctrl+Shift+O` for left sidebar
+   - `Ctrl+Shift+Alt+O` for right panel
+4. **Command Palette**: Try "Ollama: Open Chat Widget" or "Ollama: Open in Right Panel"
+5. **Reload Extension**: Press `Ctrl+Shift+P` → "Developer: Reload Window"
+
+### Connection Issues?
+- Ensure Ollama is running on `localhost:11434`
+- Check if the specified model is installed: `ollama list`
+- Restart Ollama if needed: `ollama serve`
 
 ## Requirements
 

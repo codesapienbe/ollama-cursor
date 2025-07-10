@@ -16,6 +16,9 @@
   --vscode-chat-code-bg: var(--vscode-textCodeBlock-background);
   --vscode-chat-scrollbar: var(--vscode-scrollbarSlider-background);
   --vscode-chat-scrollbar-hover: var(--vscode-scrollbarSlider-hoverBackground);
+  --vscode-chat-error: var(--vscode-errorForeground);
+  --vscode-chat-warning: var(--vscode-warningForeground);
+  --vscode-chat-success: var(--vscode-textLink-foreground);
 }
 
 * {
@@ -39,6 +42,27 @@ body {
   flex-direction: column;
   height: 100vh;
   width: 100%;
+}
+
+#connection-status {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--vscode-chat-border);
+  font-size: 0.85em;
+  font-weight: 500;
+}
+
+.connection-error {
+  color: var(--vscode-chat-error);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.connection-success {
+  color: var(--vscode-chat-success);
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 #messages-container {
@@ -101,6 +125,15 @@ body {
   border-left: 3px solid var(--vscode-textLink-foreground);
 }
 
+.message.system {
+  background-color: var(--vscode-chat-code-bg);
+  align-self: center;
+  border-left: 3px solid var(--vscode-chat-warning);
+  max-width: 90%;
+  text-align: center;
+  font-size: 0.9em;
+}
+
 .message-header {
   display: flex;
   justify-content: space-between;
@@ -151,6 +184,11 @@ body {
   line-height: 1.4;
 }
 
+.message-content strong {
+  font-weight: 600;
+  color: var(--vscode-chat-error);
+}
+
 #input-container {
   padding: 12px;
   border-top: 1px solid var(--vscode-chat-border);
@@ -186,11 +224,16 @@ body {
   font-size: var(--vscode-font-size);
   resize: none;
   outline: none;
-  transition: border-color 0.2s ease;
+  transition: border-color 0.2s ease, opacity 0.2s ease;
 }
 
 #message-input:focus {
   border-color: var(--vscode-focusBorder);
+}
+
+#message-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 #message-input::placeholder {
@@ -207,11 +250,11 @@ body {
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: background-color 0.2s ease, opacity 0.2s ease;
   font-weight: 500;
 }
 
-#send-button:hover {
+#send-button:hover:not(:disabled) {
   background-color: var(--vscode-chat-button-hover);
 }
 

@@ -12,6 +12,30 @@ export class AskAICommand {
     const editor = vscode.window.activeTextEditor;
     if (!editor) return;
 
+    // Check connection first
+    try {
+      const isHealthy = await this.client.isHealthy();
+      if (!isHealthy) {
+        vscode.window.showErrorMessage(
+          'Ollama Connection Failed',
+          {
+            detail: 'Unable to connect to Ollama server. Please ensure Ollama is running on localhost:11434.',
+            modal: false,
+          }
+        );
+        return;
+      }
+    } catch (error) {
+      vscode.window.showErrorMessage(
+        'Ollama Connection Error',
+        {
+          detail: `Failed to check Ollama connection: ${error instanceof Error ? error.message : String(error)}`,
+          modal: false,
+        }
+      );
+      return;
+    }
+
     const question = await vscode.window.showInputBox({
       prompt: 'Ask Ollama',
       ignoreFocusOut: true,
@@ -35,11 +59,33 @@ export class AskAICommand {
           vscode.window.showInformationMessage(answer);
         } catch (err) {
           if (!abort.signal.aborted) {
-            const msg = err instanceof Error ? err.message : String(err);
-            vscode.window.showErrorMessage(`Ollama error: ${msg}`);
+            const errorMsg = this._formatErrorMessage(err);
+            vscode.window.showErrorMessage(`Ollama error: ${errorMsg}`);
           }
         }
       },
     );
+  }
+
+  private _formatErrorMessage(error: any): string {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    
+    if (errorMsg.includes('Failed to connect') || errorMsg.includes('ECONNREFUSED')) {
+      return 'Ollama server is not running. Please start Ollama on localhost:11434.';
+    }
+    
+    if (errorMsg.includes('timeout') || errorMsg.includes('ETIMEDOUT')) {
+      return 'Ollama server is not responding. Please check if Ollama is running.';
+    }
+    
+    if (errorMsg.includes('HTTP 404')) {
+      return 'The specified model is not available. Please check your Ollama model configuration.';
+    }
+    
+    if (errorMsg.includes('HTTP 500')) {
+      return 'Ollama server encountered an internal error. Please restart Ollama.';
+    }
+    
+    return errorMsg;
   }
 }

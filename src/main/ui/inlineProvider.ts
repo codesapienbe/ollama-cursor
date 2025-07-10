@@ -22,15 +22,30 @@ export class InlineProvider implements vscode.InlineCompletionItemProvider {
     ));
     if (!above.trim()) return;
 
+    // Check connection before making API call
+    try {
+      const isHealthy = await this.client.isHealthy();
+      if (!isHealthy) {
+        return; // Silently fail for inline completions
+      }
+    } catch (error) {
+      return; // Silently fail for inline completions
+    }
+
     const abort = new AbortController();
     tok.onCancellationRequested(() => abort.abort());
 
     /* Get completion and build the InlineCompletionItem */
-    const completion = await this.client.generate({ prompt: above, stream: true }, abort.signal);
-    if (!completion) return;
+    try {
+      const completion = await this.client.generate({ prompt: above, stream: true }, abort.signal);
+      if (!completion) return;
 
-    const item = new vscode.InlineCompletionItem(completion, new vscode.Range(pos, pos));
+      const item = new vscode.InlineCompletionItem(completion, new vscode.Range(pos, pos));
 
-    return new vscode.InlineCompletionList([item]);
+      return new vscode.InlineCompletionList([item]);
+    } catch (error) {
+      // Silently fail for inline completions to avoid spam
+      return;
+    }
   }
 }

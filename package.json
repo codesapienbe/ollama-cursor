@@ -30,15 +30,41 @@
         "icon": "$(comment-discussion)"
       },
       {
+        "command": "ollama.openRightPanel",
+        "title": "Ollama: Open in Right Panel",
+        "icon": "$(robot)"
+      },
+      {
         "command": "ollama.clearChat",
         "title": "Clear Chat",
         "icon": "$(clear-all)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "ollama.openChatWidget",
+        "key": "ctrl+shift+o",
+        "mac": "cmd+shift+o",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "ollama.openRightPanel",
+        "key": "ctrl+shift+alt+o",
+        "mac": "cmd+shift+alt+o",
+        "when": "editorTextFocus"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
           "id": "ollama-sidebar",
+          "title": "Ollama Assistant",
+          "icon": "$(robot)"
+        }
+      ],
+      "secondarysidebar": [
+        {
+          "id": "ollama-right-panel",
           "title": "Ollama Assistant",
           "icon": "$(robot)"
         }
@@ -52,13 +78,21 @@
           "name": "Chat",
           "contextualTitle": "Ollama Chat"
         }
+      ],
+      "ollama-right-panel": [
+        {
+          "type": "webview",
+          "id": "ollama.rightPanelView",
+          "name": "Chat",
+          "contextualTitle": "Ollama Chat"
+        }
       ]
     },
     "menus": {
       "view/title": [
         {
           "command": "ollama.clearChat",
-          "when": "view == ollama.chatView",
+          "when": "view == ollama.chatView || view == ollama.rightPanelView",
           "group": "navigation"
         }
       ]
