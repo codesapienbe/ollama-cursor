@@ -23,8 +23,46 @@
       {
         "command": "ollama.askAI",
         "title": "Ollama: Ask AI…"
+      },
+      {
+        "command": "ollama.openChatWidget",
+        "title": "Ollama: Open Chat Widget",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "ollama.clearChat",
+        "title": "Clear Chat",
+        "icon": "$(clear-all)"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ollama-sidebar",
+          "title": "Ollama Assistant",
+          "icon": "$(robot)"
+        }
+      ]
+    },
+    "views": {
+      "ollama-sidebar": [
+        {
+          "type": "webview",
+          "id": "ollama.chatView",
+          "name": "Chat",
+          "contextualTitle": "Ollama Chat"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "ollama.clearChat",
+          "when": "view == ollama.chatView",
+          "group": "navigation"
+        }
+      ]
+    },
     "configuration": {
       "title": "Ollama Assistant",
       "properties": {
@@ -39,6 +77,20 @@
           "minimum": 0,
           "maximum": 1,
           "description": "Sampling temperature"
+        },
+        "ollama.maxTokens": {
+          "type": "number",
+          "default": 2048,
+          "minimum": 1,
+          "maximum": 8192,
+          "description": "Maximum number of tokens to generate"
+        },
+        "ollama.contextLength": {
+          "type": "number",
+          "default": 4096,
+          "minimum": 512,
+          "maximum": 8192,
+          "description": "Maximum context length for conversations"
         }
       }
     }
