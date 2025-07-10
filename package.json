@@ -1,0 +1,69 @@
+{
+  "name": "ollama-cursor",
+  "displayName": "ollama-cursor",
+  "description": "Alternative code assistance in case you reach API limits. ",
+  "version": "0.0.1",
+  "publisher": "codesapienbe",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/codesapienbe/ollama-cursor.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/main/extension.js",
+  "activationEvents": [
+    "onLanguage"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "ollama.askAI",
+        "title": "Ollama: Ask AI…"
+      }
+    ],
+    "configuration": {
+      "title": "Ollama Assistant",
+      "properties": {
+        "ollama.model": {
+          "type": "string",
+          "default": "codellama",
+          "description": "Model name sent to the Ollama daemon"
+        },
+        "ollama.temperature": {
+          "type": "number",
+          "default": 0.2,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Sampling temperature"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src/main",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "20.x",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^8.31.1",
+    "@typescript-eslint/parser": "^8.31.1",
+    "@vscode/test-cli": "^0.0.11",
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.25.1",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@types/node-fetch": "^2.6.12",
+    "node-fetch": "^3.3.2"
+  }
+}
