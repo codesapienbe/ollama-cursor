@@ -4,6 +4,7 @@
 
 import * as vscode     from 'vscode';
 import { OllamaClient } from '../client';
+import { OllamaInstaller } from './ollamaInstaller';
 
 export class AskAICommand {
   constructor(private readonly client: OllamaClient) {}
@@ -16,23 +17,11 @@ export class AskAICommand {
     try {
       const isHealthy = await this.client.isHealthy();
       if (!isHealthy) {
-        vscode.window.showErrorMessage(
-          'Ollama Connection Failed',
-          {
-            detail: 'Unable to connect to Ollama server. Please ensure Ollama is running on localhost:11434.',
-            modal: false,
-          }
-        );
+        await this._showInstallationOptions();
         return;
       }
     } catch (error) {
-      vscode.window.showErrorMessage(
-        'Ollama Connection Error',
-        {
-          detail: `Failed to check Ollama connection: ${error instanceof Error ? error.message : String(error)}`,
-          modal: false,
-        }
-      );
+      await this._showInstallationOptions();
       return;
     }
 
@@ -67,15 +56,42 @@ export class AskAICommand {
     );
   }
 
+  private async _showInstallationOptions(): Promise<void> {
+    const osInfo = OllamaInstaller.detectOS();
+    
+    const action = await vscode.window.showErrorMessage(
+      `Ollama Not Available on ${osInfo}`,
+      {
+        modal: true,
+        detail: `Ollama is not installed or not running on your system. Would you like to see installation instructions for ${osInfo}?`
+      },
+      'Show Installation Instructions',
+      'Open Download Page',
+      'Cancel'
+    );
+
+    switch (action) {
+      case 'Show Installation Instructions':
+        const installInfo = OllamaInstaller.getInstallationInfo();
+        await OllamaInstaller.showInstallationInstructions(installInfo);
+        break;
+      case 'Open Download Page':
+        const downloadInfo = OllamaInstaller.getInstallationInfo();
+        await vscode.env.openExternal(vscode.Uri.parse(downloadInfo.downloadUrl));
+        break;
+    }
+  }
+
   private _formatErrorMessage(error: any): string {
     const errorMsg = error instanceof Error ? error.message : String(error);
+    const osInfo = OllamaInstaller.detectOS();
     
     if (errorMsg.includes('Failed to connect') || errorMsg.includes('ECONNREFUSED')) {
-      return 'Ollama server is not running. Please start Ollama on localhost:11434.';
+      return `Ollama server is not running on ${osInfo}. Please install and start Ollama.`;
     }
     
     if (errorMsg.includes('timeout') || errorMsg.includes('ETIMEDOUT')) {
-      return 'Ollama server is not responding. Please check if Ollama is running.';
+      return `Ollama server is not responding on ${osInfo}. Please check if Ollama is running.`;
     }
     
     if (errorMsg.includes('HTTP 404')) {

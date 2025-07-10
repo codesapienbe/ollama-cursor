@@ -35,9 +35,19 @@
         "icon": "$(robot)"
       },
       {
+        "command": "ollama.showSecondarySidebar",
+        "title": "Ollama: Show Secondary Sidebar",
+        "icon": "$(layout-sidebar-right)"
+      },
+      {
         "command": "ollama.clearChat",
         "title": "Clear Chat",
         "icon": "$(clear-all)"
+      },
+      {
+        "command": "ollama.showInstallationInstructions",
+        "title": "Ollama: Show Installation Instructions",
+        "icon": "$(info)"
       }
     ],
     "keybindings": [
@@ -88,12 +98,22 @@
         }
       ]
     },
+    "panels": {
+      "default": "ollama-right-panel"
+    },
     "menus": {
       "view/title": [
         {
           "command": "ollama.clearChat",
           "when": "view == ollama.chatView || view == ollama.rightPanelView",
           "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "ollama.openRightPanel",
+          "when": "view == ollama.chatView",
+          "group": "inline"
         }
       ]
     },

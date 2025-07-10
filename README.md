@@ -1,74 +1,102 @@
-# Ollama Cursor VS Code Extension
+# Ollama Cursor Extension
 
-Alternative code assistance in case you reach API limits.
-
-## Description
-
-This extension integrates with a local Ollama server to provide AI-powered code assistance directly within VS Code. It features both a traditional command-based interface and a modern chat widget similar to GitHub Copilot or Cursor's built-in assistant.
+Transform your VS Code/Cursor into an AI-powered coding assistant with local Ollama integration! This extension provides a modern chat interface similar to GitHub Copilot, complete with context-aware responses and inline code completion.
 
 ## Features
 
-- **Chat Widget**: Persistent chat interface in the sidebar with conversation history
-- **Right Panel Chat**: Chat widget in the secondary sidebar (right panel) next to Cursor AI
-- **Inline Completions**: Ghost-text completions while typing
-- **Command-based Interaction**: Quick Q&A through the command palette
-- **Context-aware**: Automatically includes current file and selection context
-- **Streaming Responses**: Real-time response streaming for better user experience
+- **🤖 Modern Chat Interface**: Beautiful webview-based chat widget similar to GitHub Copilot
+- **📱 Multiple Access Points**: Available in both left sidebar and right panel (secondary sidebar)
+- **🔄 Context-Aware Responses**: Automatically includes current file and selection context
+- **⚡ Inline Code Completion**: Real-time code suggestions as you type
+- **🎯 Smart Error Handling**: Comprehensive error handling with user-friendly messages
+- **💻 OS-Specific Installation**: Automatic detection and installation guidance for Windows, macOS, and Linux
+- **🔧 Highly Configurable**: Customizable model, temperature, and token settings
 
-## Usage Instructions
+## Installation & Setup
 
-### Chat Widget (Left Sidebar)
+### Prerequisites
+This extension requires **Ollama** to be installed on your system. If Ollama is not installed, the extension will automatically detect your operating system and provide installation instructions.
 
-**Method 1: Activity Bar (Easiest)**
-1. Make sure you have the Ollama server running locally on `http://localhost:11434`.
-2. Look for the **🤖 (robot) icon** in the Activity Bar on the left side of VS Code
-3. Click on it to open the "Ollama Assistant" sidebar
-4. The chat widget will appear in the sidebar
+### Extension Installation
+1. Install the extension from the VS Code marketplace
+2. If Ollama is not installed, you'll see installation prompts with OS-specific instructions
+3. Follow the provided installation guide for your operating system
 
-**Method 2: Keyboard Shortcut**
-1. Press `Ctrl+Shift+O` (Windows/Linux) or `Cmd+Shift+O` (Mac)
-2. The chat widget will open automatically
+### Ollama Installation
 
-**Method 3: Command Palette**
-1. Press `Ctrl+Shift+P` (Windows/Linux) or `Cmd+Shift+P` (Mac)
-2. Type "Ollama: Open Chat Widget"
-3. Select the command and press Enter
+The extension automatically detects when Ollama is not available and provides tailored installation instructions:
 
-### Right Panel Chat (Secondary Sidebar)
+#### Windows
+- **Automatic Detection**: Extension detects Windows and provides winget installation command
+- **Installation Options**: 
+  - Windows Package Manager: `winget install Ollama.Ollama`
+  - Direct download from official website
+- **Service Management**: Guidance on starting Ollama as a Windows service
 
-**Method 1: Secondary Sidebar**
-1. Look for the **🤖 (robot) icon** in the secondary sidebar (right panel)
-2. Click on it to open the Ollama Chat in the right panel
-3. This appears next to the Cursor AI assistant
+#### macOS
+- **Homebrew Installation**: `brew install ollama` (recommended)
+- **Direct Download**: .dmg installer from official website
+- **Terminal Integration**: Easy startup with `ollama serve`
 
-**Method 2: Keyboard Shortcut**
-1. Press `Ctrl+Shift+Alt+O` (Windows/Linux) or `Cmd+Shift+Alt+O` (Mac)
-2. The right panel chat will open automatically
+#### Linux
+- **One-line Installation**: `curl -fsSL https://ollama.com/install.sh | sh`
+- **Manual Installation**: Binary download and setup instructions
+- **Systemd Integration**: Service setup for automatic startup
 
-**Method 3: Command Palette**
-1. Press `Ctrl+Shift+P` (Windows/Linux) or `Cmd+Shift+P` (Mac)
-2. Type "Ollama: Open in Right Panel"
-3. Select the command and press Enter
+### Model Setup
+After installing Ollama, pull your desired model:
+```bash
+ollama pull codellama
+# or
+ollama pull llama2
+ollama pull deepseek-coder
+```
 
-### Command Palette
+## Usage
 
-1. Make sure you have the Ollama server running locally on `http://localhost:11434`.
-2. Open a file in VS Code.
-3. Press `Ctrl+Shift+P` (or `Cmd+Shift+P` on Mac) to open the Command Palette.
-4. Type `Ollama: Ask AI` and select the command.
-5. Enter your question in the input box and press Enter.
-6. The response from the Ollama model will be shown as a notification.
+### Chat Interface
+
+#### Left Sidebar (Activity Bar)
+- **Click** the 🤖 icon in the Activity Bar
+- **Keyboard Shortcut**: `Ctrl+Shift+O` (Windows/Linux) or `Cmd+Shift+O` (macOS)
+- **Command Palette**: "Ollama: Open Chat Widget"
+
+#### Right Panel (Secondary Sidebar)
+- **Click** the 🤖 icon in the secondary sidebar (next to Extensions, Commit Graph, etc.)
+- **Keyboard Shortcut**: `Ctrl+Shift+Alt+O` (Windows/Linux) or `Cmd+Shift+Alt+O` (macOS)
+- **Command Palette**: "Ollama: Open in Right Panel"
+
+### Features
+
+#### Context-Aware Responses
+The extension automatically includes context from your current work:
+- **Selected Code**: When you have text selected, it's included in your query
+- **Current File**: For smaller files, the entire content is included for context
+- **File Information**: File name and language are always included
+
+#### Inline Code Completion
+- **Automatic Suggestions**: Get code completions as you type
+- **Context-Aware**: Suggestions based on your current code context
+- **VS Code Integration**: Works seamlessly with VS Code's IntelliSense
+
+#### Connection Status
+- **Status Bar**: Shows Ollama connection status in the status bar
+- **Visual Indicators**: Clear indication when Ollama is connected or disconnected
+- **Installation Prompts**: Automatic installation guidance when Ollama is not available
+
+### Commands
+
+| Command | Description | Keyboard Shortcut |
+|---------|-------------|-------------------|
+| `Ollama: Ask AI` | Quick question in input box | - |
+| `Ollama: Open Chat Widget` | Open chat in left sidebar | `Ctrl+Shift+O` |
+| `Ollama: Open in Right Panel` | Open chat in right panel | `Ctrl+Shift+Alt+O` |
+| `Ollama: Show Installation Instructions` | Show OS-specific installation guide | - |
+| `Ollama: Clear Chat` | Clear chat history | - |
 
 ## Configuration
 
-You can configure the following settings in your VS Code `settings.json`:
-
-- `ollama.model`: The model name passed to the local Ollama daemon (default: `codellama`).
-- `ollama.temperature`: The temperature value for the model (default: `0.2`, range: `0` to `1`).
-- `ollama.maxTokens`: Maximum number of tokens to generate (default: `2048`, range: `1` to `8192`).
-- `ollama.contextLength`: Maximum context length for conversations (default: `4096`, range: `512` to `8192`).
-
-Example:
+Configure the extension through VS Code settings:
 
 ```json
 {
@@ -79,39 +107,85 @@ Example:
 }
 ```
 
-## Commands
+### Settings
 
-- `Ollama: Ask AI`: Open input box for quick questions
-- `Ollama: Open Chat Widget`: Open the chat widget in the left sidebar
-- `Ollama: Open in Right Panel`: Open the chat widget in the right panel
-- `Ollama: Clear Chat`: Clear the chat conversation history
-
-## Keyboard Shortcuts
-
-- `Ctrl+Shift+O` (Windows/Linux) / `Cmd+Shift+O` (Mac): Open Ollama Chat Widget (Left Sidebar)
-- `Ctrl+Shift+Alt+O` (Windows/Linux) / `Cmd+Shift+Alt+O` (Mac): Open Ollama Chat in Right Panel
+- **`ollama.model`**: Model name (default: "codellama")
+- **`ollama.temperature`**: Sampling temperature 0.0-1.0 (default: 0.2)
+- **`ollama.maxTokens`**: Maximum tokens to generate (default: 2048)
+- **`ollama.contextLength`**: Maximum context length (default: 4096)
 
 ## Troubleshooting
 
-### Widget Not Opening?
-1. **Check Activity Bar**: Look for the 🤖 icon in the left sidebar
-2. **Check Secondary Sidebar**: Look for the 🤖 icon in the right panel
-3. **Use Keyboard Shortcuts**: 
-   - `Ctrl+Shift+O` for left sidebar
-   - `Ctrl+Shift+Alt+O` for right panel
-4. **Command Palette**: Try "Ollama: Open Chat Widget" or "Ollama: Open in Right Panel"
-5. **Reload Extension**: Press `Ctrl+Shift+P` → "Developer: Reload Window"
+### Ollama Not Found
+If you see "Ollama not found" messages:
+1. **Automatic Installation**: The extension will show installation instructions for your OS
+2. **Manual Installation**: Visit [ollama.com](https://ollama.com) for your platform
+3. **Verify Installation**: Run `ollama --version` in your terminal
 
-### Connection Issues?
-- Ensure Ollama is running on `localhost:11434`
-- Check if the specified model is installed: `ollama list`
-- Restart Ollama if needed: `ollama serve`
+### Connection Issues
+- **Service Not Running**: Start Ollama with `ollama serve`
+- **Port Conflicts**: Check if port 11434 is available
+- **Firewall**: Ensure your firewall allows localhost connections
+
+### Status Bar Indicators
+- **✅ Ollama Connected**: Everything is working
+- **⚠️ Ollama Not Found**: Installation required
+- **❌ Ollama Error**: Connection or service issues
+
+### Common Solutions
+
+#### Windows
+- **Service Issues**: Check Windows Services for Ollama
+- **Path Problems**: Ensure Ollama is in your PATH
+- **Permissions**: Run as administrator if needed
+
+#### macOS
+- **Homebrew Issues**: Update Homebrew and try again
+- **Permission Denied**: Check file permissions
+- **Terminal Access**: Ensure terminal has necessary permissions
+
+#### Linux
+- **Systemd Service**: Enable and start Ollama service
+- **Dependencies**: Install required dependencies (CUDA drivers for GPU)
+- **User Permissions**: Ensure user has access to required resources
+
+## Development
+
+### Building from Source
+```bash
+npm install
+npm run compile
+```
+
+### Testing
+```bash
+npm test
+```
 
 ## Requirements
 
-- Node.js
-- Ollama server running locally
+- **VS Code**: Version 1.85.0 or higher
+- **Ollama**: Latest version recommended
+- **Node.js**: For development (if building from source)
 
 ## License
 
-MIT
+MIT License - see LICENSE file for details.
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+## Support
+
+- **Issues**: Report bugs and request features on GitHub
+- **Documentation**: Check the README and inline documentation
+- **Community**: Join discussions in the repository
+
+---
+
+**Note**: This extension works entirely with your local Ollama installation. No data is sent to external servers, ensuring your code remains private and secure.

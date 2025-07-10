@@ -6,6 +6,7 @@
 
 import * as vscode from 'vscode';
 import { OllamaClient } from '../client';
+import { OllamaInstaller } from './ollamaInstaller';
 
 export interface ChatMessage {
   id: string;
@@ -21,6 +22,7 @@ export class ChatWidgetProvider implements vscode.WebviewViewProvider {
   private _messages: ChatMessage[] = [];
   private _disposables: vscode.Disposable[] = [];
   private _isConnected: boolean = false;
+  private _installationShown: boolean = false;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -59,6 +61,9 @@ export class ChatWidgetProvider implements vscode.WebviewViewProvider {
           case 'checkConnection':
             this._checkConnection();
             break;
+          case 'installOllama':
+            this._showInstallationInstructions();
+            break;
         }
       },
       null,
@@ -74,28 +79,53 @@ export class ChatWidgetProvider implements vscode.WebviewViewProvider {
       this._isConnected = await this._client.isHealthy();
       
       if (!this._isConnected) {
-        this._showConnectionError();
-        this._addSystemMessage('⚠️ Ollama is not running. Please start Ollama server on localhost:11434 to use this extension.');
+        if (!this._installationShown) {
+          // Show installation dialog only once per session
+          this._installationShown = true;
+          await this._showInstallationDialog();
+        }
+        
+        const osInfo = OllamaInstaller.detectOS();
+        this._addSystemMessage(`⚠️ **Ollama not found on ${osInfo}**\n\nClick the "Install Ollama" button below to get OS-specific installation instructions.`);
       } else {
-        // Clear any previous connection error messages
+        // Clear any previous connection error messages and reset installation flag
+        this._installationShown = false;
         this._messages = this._messages.filter(msg => 
           !msg.content.includes('Ollama is not running') && 
-          !msg.content.includes('connection failed')
+          !msg.content.includes('connection failed') &&
+          !msg.content.includes('Ollama not found')
         );
         this._updateWebview();
       }
     } catch (error) {
       this._isConnected = false;
-      this._showConnectionError();
-      this._addSystemMessage('❌ Failed to connect to Ollama. Please check if Ollama is running on localhost:11434.');
+      
+      if (!this._installationShown) {
+        this._installationShown = true;
+        await this._showInstallationDialog();
+      }
+      
+      const osInfo = OllamaInstaller.detectOS();
+      this._addSystemMessage(`❌ **Failed to connect to Ollama on ${osInfo}**\n\nThis usually means Ollama is not installed. Click "Install Ollama" below for installation instructions.`);
     }
   }
 
+  private async _showInstallationDialog(): Promise<void> {
+    // Show installation dialog
+    await OllamaInstaller.showInstallationDialog();
+  }
+
+  private async _showInstallationInstructions(): Promise<void> {
+    const installInfo = OllamaInstaller.getInstallationInfo();
+    await OllamaInstaller.showInstallationInstructions(installInfo);
+  }
+
   private _showConnectionError(): void {
+    const osInfo = OllamaInstaller.detectOS();
     vscode.window.showErrorMessage(
-      'Ollama Connection Failed',
+      `Ollama Connection Failed on ${osInfo}`,
       {
-        detail: 'Unable to connect to Ollama server. Please ensure Ollama is running on localhost:11434.',
+        detail: 'Unable to connect to Ollama server. This usually means Ollama is not installed or not running.',
         modal: false,
       }
     );
@@ -120,7 +150,8 @@ export class ChatWidgetProvider implements vscode.WebviewViewProvider {
     if (!this._isConnected) {
       await this._checkConnection();
       if (!this._isConnected) {
-        this._addSystemMessage('❌ Cannot send message: Ollama is not connected. Please start Ollama server and try again.');
+        const osInfo = OllamaInstaller.detectOS();
+        this._addSystemMessage(`❌ **Cannot send message: Ollama is not connected**\n\nPlease install Ollama for ${osInfo} first. Click "Install Ollama" below for instructions.`);
         return;
       }
     }
@@ -210,13 +241,14 @@ export class ChatWidgetProvider implements vscode.WebviewViewProvider {
 
   private _formatErrorMessage(error: any): string {
     const errorMsg = error instanceof Error ? error.message : String(error);
+    const osInfo = OllamaInstaller.detectOS();
     
     if (errorMsg.includes('Failed to connect') || errorMsg.includes('ECONNREFUSED')) {
-      return '❌ **Connection Failed**: Ollama server is not running. Please start Ollama on localhost:11434 and try again.';
+      return `❌ **Connection Failed on ${osInfo}**: Ollama server is not running. Please install and start Ollama, or click "Install Ollama" for installation instructions.`;
     }
     
     if (errorMsg.includes('timeout') || errorMsg.includes('ETIMEDOUT')) {
-      return '⏱️ **Request Timeout**: Ollama server is not responding. Please check if Ollama is running and try again.';
+      return `⏱️ **Request Timeout on ${osInfo}**: Ollama server is not responding. Please check if Ollama is running and try again.`;
     }
     
     if (errorMsg.includes('HTTP 404')) {
@@ -305,6 +337,9 @@ export class ChatWidgetProvider implements vscode.WebviewViewProvider {
         <div id="messages-container"></div>
         <div id="input-container">
             <div id="context-info"></div>
+            <div id="install-button-container" style="display: none;">
+                <button id="install-button" class="install-btn">📥 Install Ollama</button>
+            </div>
             <textarea id="message-input" placeholder="Ask Ollama..." rows="3"></textarea>
             <button id="send-button">Send</button>
         </div>
@@ -320,6 +355,8 @@ export class ChatWidgetProvider implements vscode.WebviewViewProvider {
         const sendButton = document.getElementById('send-button');
         const contextInfo = document.getElementById('context-info');
         const connectionStatus = document.getElementById('connection-status');
+        const installButtonContainer = document.getElementById('install-button-container');
+        const installButton = document.getElementById('install-button');
 
         function escapeHtml(text) {
             const div = document.createElement('div');
@@ -330,11 +367,13 @@ export class ChatWidgetProvider implements vscode.WebviewViewProvider {
         function updateConnectionStatus() {
             if (!isConnected) {
                 connectionStatus.innerHTML = '<div class="connection-error">⚠️ Ollama not connected</div>';
+                installButtonContainer.style.display = 'block';
                 messageInput.disabled = true;
                 sendButton.disabled = true;
-                messageInput.placeholder = 'Ollama not available...';
+                messageInput.placeholder = 'Install Ollama to continue...';
             } else {
                 connectionStatus.innerHTML = '<div class="connection-success">✅ Ollama connected</div>';
+                installButtonContainer.style.display = 'none';
                 messageInput.disabled = false;
                 sendButton.disabled = false;
                 messageInput.placeholder = 'Ask Ollama...';
@@ -399,6 +438,12 @@ export class ChatWidgetProvider implements vscode.WebviewViewProvider {
         }
 
         sendButton.addEventListener('click', sendMessage);
+
+        installButton.addEventListener('click', () => {
+            vscode.postMessage({
+                type: 'installOllama'
+            });
+        });
 
         messageInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {

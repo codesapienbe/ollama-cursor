@@ -211,6 +211,42 @@ body {
   display: block;
 }
 
+#install-button-container {
+  display: flex;
+  justify-content: center;
+  margin: 8px 0;
+}
+
+.install-btn {
+  background: linear-gradient(135deg, var(--vscode-button-background), var(--vscode-textLink-foreground));
+  color: var(--vscode-button-foreground);
+  border: none;
+  border-radius: 8px;
+  padding: 12px 24px;
+  font-family: var(--vscode-font-family);
+  font-size: 0.9em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: none;
+  letter-spacing: 0.5px;
+}
+
+.install-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  background: linear-gradient(135deg, var(--vscode-button-hoverBackground), var(--vscode-textLink-activeForeground));
+}
+
+.install-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
 #message-input {
   flex: 1;
   min-height: 36px;
@@ -319,6 +355,29 @@ body {
   }
 }
 
+/* Installation prompt styles */
+.install-prompt {
+  background: linear-gradient(135deg, var(--vscode-textCodeBlock-background), var(--vscode-editor-background));
+  border: 2px solid var(--vscode-textLink-foreground);
+  border-radius: 12px;
+  padding: 20px;
+  margin: 16px;
+  text-align: center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+.install-prompt h3 {
+  color: var(--vscode-textLink-foreground);
+  margin-bottom: 12px;
+  font-size: 1.1em;
+}
+
+.install-prompt p {
+  margin-bottom: 16px;
+  line-height: 1.5;
+  opacity: 0.9;
+}
+
 /* Responsive design */
 @media (max-width: 400px) {
   #messages-container {
@@ -331,5 +390,10 @@ body {
   
   .message {
     padding: 8px;
+  }
+  
+  .install-btn {
+    padding: 10px 20px;
+    font-size: 0.85em;
   }
 } 
