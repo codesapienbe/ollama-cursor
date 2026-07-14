@@ -1,6 +1,19 @@
 # Ollama Cursor Extension
 
-Transform your VS Code/Cursor into an AI-powered coding assistant with local Ollama integration! This extension provides a modern chat interface similar to GitHub Copilot, complete with context-aware responses and inline code completion.
+Transform your editor into an AI-powered coding assistant with local Ollama integration! This project provides a modern chat interface similar to GitHub Copilot, complete with context-aware responses and inline code completion.
+
+## Supported IDEs
+
+| IDE | What you install | Where |
+|---|---|---|
+| VS Code | The extension at the repository root, packaged as a `.vsix` | [Installation & Setup](#installation--setup) below |
+| Cursor | The **same** `.vsix` — Cursor is a VS Code fork and uses the same extension format | [Installation & Setup](#installation--setup) below |
+| IntelliJ IDEA | A separate JetBrains Platform plugin in [`intellij-plugin/`](intellij-plugin/) | [`intellij-plugin/README.md`](intellij-plugin/README.md) |
+
+IntelliJ IDEA cannot run VS Code extensions, so it's a distinct Kotlin/Gradle
+codebase that mirrors the same features (chat widget, Ask AI, OS-aware
+installer, configurable model/temperature/tokens) against the same local
+Ollama daemon.
 
 ## Features
 
@@ -17,10 +30,31 @@ Transform your VS Code/Cursor into an AI-powered coding assistant with local Oll
 ### Prerequisites
 This extension requires **Ollama** to be installed on your system. If Ollama is not installed, the extension will automatically detect your operating system and provide installation instructions.
 
-### Extension Installation
-1. Install the extension from the VS Code marketplace
-2. If Ollama is not installed, you'll see installation prompts with OS-specific instructions
-3. Follow the provided installation guide for your operating system
+### Extension Installation (VS Code and Cursor)
+
+Until this is published to the VS Code Marketplace, install it from a locally built `.vsix`:
+
+```bash
+npm install
+npx @vscode/vsce package    # produces ollama-cursor-<version>.vsix
+```
+
+Then, in **VS Code**:
+```bash
+code --install-extension ollama-cursor-<version>.vsix
+```
+
+Or in **Cursor** (same extension format, since Cursor is a VS Code fork):
+```bash
+cursor --install-extension ollama-cursor-<version>.vsix
+```
+
+Without CLI access, use the Extensions view's `...` menu → **Install from VSIX...**
+in either editor. `setup.sh` automates the `code --install-extension` step for VS Code.
+
+If Ollama is not installed, the extension will automatically detect your operating system and show installation prompts.
+
+For **IntelliJ IDEA**, see [`intellij-plugin/README.md`](intellij-plugin/README.md) instead — it's a separate plugin build.
 
 ### Ollama Installation
 
@@ -151,7 +185,12 @@ If you see "Ollama not found" messages:
 
 ## Development
 
-### Building from Source
+This repository contains two independent codebases:
+
+- **Repository root** — the VS Code/Cursor extension (TypeScript, npm).
+- **`intellij-plugin/`** — the IntelliJ IDEA plugin (Kotlin, Gradle). See [`intellij-plugin/README.md`](intellij-plugin/README.md).
+
+### Building the VS Code/Cursor extension from Source
 ```bash
 npm install
 npm run compile
@@ -162,11 +201,19 @@ npm run compile
 npm test
 ```
 
+### Building the IntelliJ plugin from Source
+```bash
+cd intellij-plugin
+./gradlew buildPlugin
+```
+
 ## Requirements
 
-- **VS Code**: Version 1.85.0 or higher
+- **VS Code**: Version 1.85.0 or higher, **or Cursor** (any recent version — same extension format)
+- **IntelliJ IDEA**: Version 2023.3 or higher (Community or Ultimate), via the separate plugin in `intellij-plugin/`
 - **Ollama**: Latest version recommended
-- **Node.js**: For development (if building from source)
+- **Node.js**: For building the VS Code/Cursor extension from source
+- **JDK 17+**: For building the IntelliJ plugin from source
 
 ## License
 
