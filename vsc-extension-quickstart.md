@@ -1,13 +1,14 @@
 # Extension Manifest (Quick Reference)
 
-- **Name:** ollama-cursor
-- **Description:** Alternative code assistance in case you reach API limits.
+- **Name:** olliberty
+- **Display Name:** Olliberty
+- **Description:** Local, private AI coding assistant powered by Ollama — for VS Code, Cursor, and IntelliJ IDEA.
 - **Version:** 0.0.1
-- **Publisher:** [Your Name or Organization]
-- **Engines:** VS Code ^1.101.0
+- **Publisher:** codesapienbe
+- **Engines:** VS Code ^1.85.0
 - **Categories:** Other
-- **Main:** ./out/extension.js
+- **Main:** ./out/main/extension.js
 - **Contributes:**
   - **Configuration:**
-    - `ollama.model` (string, default: "codellama"): Model name passed to the local Ollama daemon
-    - `ollama.temperature` (number, default: 0.2, min: 0, max: 1): Temperature value for the model
+    - `olliberty.model` (string, default: "codellama"): Model name passed to the local Ollama daemon
+    - `olliberty.temperature` (number, default: 0.2, min: 0, max: 1): Temperature value for the model

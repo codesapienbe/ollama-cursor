@@ -56,10 +56,10 @@ object OllamaInstaller {
     fun showNotFoundNotification(project: Project?) {
         val info = detect()
         val notification = NotificationGroupManager.getInstance()
-            .getNotificationGroup("Ollama Assistant")
+            .getNotificationGroup("Olliberty")
             .createNotification(
                 "Ollama not found on ${info.os}",
-                "Install it, then start it with \"ollama serve\" before using Ollama Assistant.",
+                "Install it, then start it with \"ollama serve\" before using Olliberty.",
                 NotificationType.WARNING,
             )
         notification.addAction(NotificationAction.createSimple("Show Instructions") {
@@ -74,7 +74,7 @@ object OllamaInstaller {
     private fun showInstructionsNotification(project: Project?, info: InstallationInfo) {
         val body = info.commands.joinToString("<br/>") { it }
         NotificationGroupManager.getInstance()
-            .getNotificationGroup("Ollama Assistant")
+            .getNotificationGroup("Olliberty")
             .createNotification("Install Ollama on ${info.os}", body, NotificationType.INFORMATION)
             .notify(project)
     }

@@ -16,7 +16,7 @@ export interface ChatMessage {
 }
 
 export class ChatWidgetProvider implements vscode.WebviewViewProvider {
-  public static readonly viewType = 'ollama.chatView';
+  public static readonly viewType = 'olliberty.chatView';
 
   private _view?: vscode.WebviewView;
   private _messages: ChatMessage[] = [];
@@ -329,7 +329,7 @@ export class ChatWidgetProvider implements vscode.WebviewViewProvider {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
     <link href="${styleUri}" rel="stylesheet">
-    <title>Ollama Chat</title>
+    <title>Olliberty Chat</title>
 </head>
 <body>
     <div id="chat-container">
@@ -388,7 +388,7 @@ export class ChatWidgetProvider implements vscode.WebviewViewProvider {
                 emptyState.className = 'empty-state';
                 emptyState.innerHTML = \`
                     <div class="empty-state-icon">🤖</div>
-                    <div class="empty-state-title">Ollama Assistant</div>
+                    <div class="empty-state-title">Olliberty</div>
                     <div class="empty-state-description">
                         Ask me anything about your code!<br>
                         I'll help you with explanations, debugging, and suggestions.

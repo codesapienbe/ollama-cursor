@@ -63,21 +63,21 @@ class OllamaChatPanel(private val project: Project) : JPanel(BorderLayout()) {
         appendLine("You: $message")
         sendButton.isEnabled = false
 
-        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Ollama: thinking…", false) {
+        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Olliberty: thinking…", false) {
             override fun run(indicator: ProgressIndicator) {
                 try {
                     if (!client.isHealthy()) {
                         SwingUtilities.invokeLater {
-                            appendLine("Ollama: not reachable on localhost:11434")
+                            appendLine("Olliberty: Ollama not reachable on localhost:11434")
                             OllamaInstaller.showNotFoundNotification(project)
                         }
                         return
                     }
                     val response = client.generate(message)
-                    SwingUtilities.invokeLater { appendLine("Ollama: $response") }
+                    SwingUtilities.invokeLater { appendLine("Olliberty: $response") }
                 } catch (ex: Exception) {
                     val text = if (ex is OllamaException) ex.message else ex.message
-                    SwingUtilities.invokeLater { appendLine("Ollama error: $text") }
+                    SwingUtilities.invokeLater { appendLine("Olliberty error: $text") }
                 } finally {
                     SwingUtilities.invokeLater { sendButton.isEnabled = true }
                 }

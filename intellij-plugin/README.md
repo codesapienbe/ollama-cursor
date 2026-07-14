@@ -1,4 +1,4 @@
-# Ollama Assistant for IntelliJ IDEA
+# Olliberty for IntelliJ IDEA
 
 A JetBrains Platform plugin that mirrors the VS Code / Cursor extension in this
 repository: a chat tool window, an "Ask AI" action, and OS-aware install help,
@@ -22,7 +22,7 @@ IntelliJ IDEA cannot run VS Code extensions, so this plugin is built on the
 ./gradlew buildPlugin
 ```
 
-The installable plugin ZIP is written to `build/distributions/ollama-assistant-<version>.zip`.
+The installable plugin ZIP is written to `build/distributions/olliberty-<version>.zip`.
 
 ## Install into IntelliJ IDEA
 
@@ -40,10 +40,10 @@ This launches a sandboxed IntelliJ IDEA instance with the plugin already install
 
 ## Usage
 
-- **Tools → Ollama → Ollama: Open Chat Widget** (`Ctrl+Shift+O` / `Cmd+Shift+O`) opens the chat tool window (docked on the right by default).
-- **Tools → Ollama → Ollama: Ask AI…** prompts for a question and streams the response into a timestamped Markdown file under `.ollama/` in the project root.
-- **Tools → Ollama → Ollama: Show Installation Instructions** shows OS-specific install steps if Ollama isn't reachable on `localhost:11434`.
-- **Settings/Preferences → Tools → Ollama Assistant** configures the model, temperature, max tokens, and context length — the same settings the VS Code extension exposes.
+- **Tools → Olliberty → Olliberty: Open Chat Widget** (`Ctrl+Shift+O` / `Cmd+Shift+O`) opens the chat tool window (docked on the right by default).
+- **Tools → Olliberty → Olliberty: Ask AI…** prompts for a question and streams the response into a timestamped Markdown file under `.ollama/` in the project root.
+- **Tools → Olliberty → Olliberty: Show Installation Instructions** shows OS-specific install steps if Ollama isn't reachable on `localhost:11434`.
+- **Settings/Preferences → Tools → Olliberty** configures the model, temperature, max tokens, and context length — the same settings the VS Code extension exposes.
 
 ## Notes on versions
 
