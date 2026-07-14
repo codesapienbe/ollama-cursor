@@ -1,4 +1,4 @@
-# Ollama Cursor Extension
+# Olliberty
 
 Transform your editor into an AI-powered coding assistant with local Ollama integration! This project provides a modern chat interface similar to GitHub Copilot, complete with context-aware responses and inline code completion.
 
@@ -28,7 +28,7 @@ Ollama daemon.
 ## Installation & Setup
 
 ### Prerequisites
-This extension requires **Ollama** to be installed on your system. If Ollama is not installed, the extension will automatically detect your operating system and provide installation instructions.
+Olliberty requires **Ollama** to be installed on your system. If Ollama is not installed, it will automatically detect your operating system and provide installation instructions.
 
 ### Extension Installation (VS Code and Cursor)
 
@@ -36,32 +36,32 @@ Until this is published to the VS Code Marketplace, install it from a locally bu
 
 ```bash
 npm install
-npx @vscode/vsce package    # produces ollama-cursor-<version>.vsix
+npx @vscode/vsce package    # produces olliberty-<version>.vsix
 ```
 
 Then, in **VS Code**:
 ```bash
-code --install-extension ollama-cursor-<version>.vsix
+code --install-extension olliberty-<version>.vsix
 ```
 
 Or in **Cursor** (same extension format, since Cursor is a VS Code fork):
 ```bash
-cursor --install-extension ollama-cursor-<version>.vsix
+cursor --install-extension olliberty-<version>.vsix
 ```
 
 Without CLI access, use the Extensions view's `...` menu → **Install from VSIX...**
 in either editor. `setup.sh` automates the `code --install-extension` step for VS Code.
 
-If Ollama is not installed, the extension will automatically detect your operating system and show installation prompts.
+If Ollama is not installed, Olliberty will automatically detect your operating system and show installation prompts.
 
 For **IntelliJ IDEA**, see [`intellij-plugin/README.md`](intellij-plugin/README.md) instead — it's a separate plugin build.
 
 ### Ollama Installation
 
-The extension automatically detects when Ollama is not available and provides tailored installation instructions:
+Olliberty automatically detects when Ollama is not available and provides tailored installation instructions:
 
 #### Windows
-- **Automatic Detection**: Extension detects Windows and provides winget installation command
+- **Automatic Detection**: Detects Windows and provides winget installation command
 - **Installation Options**: 
   - Windows Package Manager: `winget install Ollama.Ollama`
   - Direct download from official website
@@ -93,17 +93,17 @@ ollama pull deepseek-coder
 #### Left Sidebar (Activity Bar)
 - **Click** the 🤖 icon in the Activity Bar
 - **Keyboard Shortcut**: `Ctrl+Shift+O` (Windows/Linux) or `Cmd+Shift+O` (macOS)
-- **Command Palette**: "Ollama: Open Chat Widget"
+- **Command Palette**: "Olliberty: Open Chat Widget"
 
 #### Right Panel (Secondary Sidebar)
 - **Click** the 🤖 icon in the secondary sidebar (next to Extensions, Commit Graph, etc.)
 - **Keyboard Shortcut**: `Ctrl+Shift+Alt+O` (Windows/Linux) or `Cmd+Shift+Alt+O` (macOS)
-- **Command Palette**: "Ollama: Open in Right Panel"
+- **Command Palette**: "Olliberty: Open in Right Panel"
 
 ### Features
 
 #### Context-Aware Responses
-The extension automatically includes context from your current work:
+Olliberty automatically includes context from your current work:
 - **Selected Code**: When you have text selected, it's included in your query
 - **Current File**: For smaller files, the entire content is included for context
 - **File Information**: File name and language are always included
@@ -122,37 +122,37 @@ The extension automatically includes context from your current work:
 
 | Command | Description | Keyboard Shortcut |
 |---------|-------------|-------------------|
-| `Ollama: Ask AI` | Quick question in input box | - |
-| `Ollama: Open Chat Widget` | Open chat in left sidebar | `Ctrl+Shift+O` |
-| `Ollama: Open in Right Panel` | Open chat in right panel | `Ctrl+Shift+Alt+O` |
-| `Ollama: Show Installation Instructions` | Show OS-specific installation guide | - |
-| `Ollama: Clear Chat` | Clear chat history | - |
+| `Olliberty: Ask AI` | Quick question in input box | - |
+| `Olliberty: Open Chat Widget` | Open chat in left sidebar | `Ctrl+Shift+O` |
+| `Olliberty: Open in Right Panel` | Open chat in right panel | `Ctrl+Shift+Alt+O` |
+| `Olliberty: Show Installation Instructions` | Show OS-specific installation guide | - |
+| `Clear Chat` | Clear chat history | - |
 
 ## Configuration
 
-Configure the extension through VS Code settings:
+Configure Olliberty through VS Code settings:
 
 ```json
 {
-  "ollama.model": "codellama",
-  "ollama.temperature": 0.2,
-  "ollama.maxTokens": 2048,
-  "ollama.contextLength": 4096
+  "olliberty.model": "codellama",
+  "olliberty.temperature": 0.2,
+  "olliberty.maxTokens": 2048,
+  "olliberty.contextLength": 4096
 }
 ```
 
 ### Settings
 
-- **`ollama.model`**: Model name (default: "codellama")
-- **`ollama.temperature`**: Sampling temperature 0.0-1.0 (default: 0.2)
-- **`ollama.maxTokens`**: Maximum tokens to generate (default: 2048)
-- **`ollama.contextLength`**: Maximum context length (default: 4096)
+- **`olliberty.model`**: Model name sent to the Ollama daemon (default: "codellama")
+- **`olliberty.temperature`**: Sampling temperature 0.0-1.0 (default: 0.2)
+- **`olliberty.maxTokens`**: Maximum tokens to generate (default: 2048)
+- **`olliberty.contextLength`**: Maximum context length (default: 4096)
 
 ## Troubleshooting
 
 ### Ollama Not Found
 If you see "Ollama not found" messages:
-1. **Automatic Installation**: The extension will show installation instructions for your OS
+1. **Automatic Installation**: Olliberty will show installation instructions for your OS
 2. **Manual Installation**: Visit [ollama.com](https://ollama.com) for your platform
 3. **Verify Installation**: Run `ollama --version` in your terminal
 
@@ -235,4 +235,4 @@ MIT License - see LICENSE file for details.
 
 ---
 
-**Note**: This extension works entirely with your local Ollama installation. No data is sent to external servers, ensuring your code remains private and secure.
+**Note**: Olliberty works entirely with your local Ollama installation. No data is sent to external servers, ensuring your code remains private and secure.

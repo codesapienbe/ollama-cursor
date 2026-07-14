@@ -6,7 +6,7 @@ import com.intellij.util.ui.FormBuilder
 import javax.swing.JComponent
 import javax.swing.JPanel
 
-/** "Settings > Tools > Ollama Assistant" page. */
+/** "Settings > Tools > Olliberty" page. */
 class OllamaSettingsConfigurable : Configurable {
 
     private val state = OllamaSettingsState.getInstance()
@@ -18,7 +18,7 @@ class OllamaSettingsConfigurable : Configurable {
 
     private var panel: JPanel? = null
 
-    override fun getDisplayName(): String = "Ollama Assistant"
+    override fun getDisplayName(): String = "Olliberty"
 
     override fun createComponent(): JComponent {
         val built = FormBuilder.createFormBuilder()

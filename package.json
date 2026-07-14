@@ -1,7 +1,7 @@
 {
-  "name": "ollama-cursor",
-  "displayName": "ollama-cursor",
-  "description": "Alternative code assistance in case you reach API limits. ",
+  "name": "olliberty",
+  "displayName": "Olliberty",
+  "description": "Local, private AI coding assistant powered by Ollama — for VS Code, Cursor, and IntelliJ IDEA.",
   "version": "0.0.1",
   "publisher": "codesapienbe",
   "repository": {
@@ -21,44 +21,44 @@
   "contributes": {
     "commands": [
       {
-        "command": "ollama.askAI",
-        "title": "Ollama: Ask AI…"
+        "command": "olliberty.askAI",
+        "title": "Olliberty: Ask AI…"
       },
       {
-        "command": "ollama.openChatWidget",
-        "title": "Ollama: Open Chat Widget",
+        "command": "olliberty.openChatWidget",
+        "title": "Olliberty: Open Chat Widget",
         "icon": "$(comment-discussion)"
       },
       {
-        "command": "ollama.openRightPanel",
-        "title": "Ollama: Open in Right Panel",
+        "command": "olliberty.openRightPanel",
+        "title": "Olliberty: Open in Right Panel",
         "icon": "$(robot)"
       },
       {
-        "command": "ollama.showSecondarySidebar",
-        "title": "Ollama: Show Secondary Sidebar",
+        "command": "olliberty.showSecondarySidebar",
+        "title": "Olliberty: Show Secondary Sidebar",
         "icon": "$(layout-sidebar-right)"
       },
       {
-        "command": "ollama.clearChat",
+        "command": "olliberty.clearChat",
         "title": "Clear Chat",
         "icon": "$(clear-all)"
       },
       {
-        "command": "ollama.showInstallationInstructions",
-        "title": "Ollama: Show Installation Instructions",
+        "command": "olliberty.showInstallationInstructions",
+        "title": "Olliberty: Show Installation Instructions",
         "icon": "$(info)"
       }
     ],
     "keybindings": [
       {
-        "command": "ollama.openChatWidget",
+        "command": "olliberty.openChatWidget",
         "key": "ctrl+shift+o",
         "mac": "cmd+shift+o",
         "when": "editorTextFocus"
       },
       {
-        "command": "ollama.openRightPanel",
+        "command": "olliberty.openRightPanel",
         "key": "ctrl+shift+alt+o",
         "mac": "cmd+shift+alt+o",
         "when": "editorTextFocus"
@@ -67,79 +67,79 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "ollama-sidebar",
-          "title": "Ollama Assistant",
+          "id": "olliberty-sidebar",
+          "title": "Olliberty",
           "icon": "$(robot)"
         }
       ],
       "secondarysidebar": [
         {
-          "id": "ollama-right-panel",
-          "title": "Ollama Assistant",
+          "id": "olliberty-right-panel",
+          "title": "Olliberty",
           "icon": "$(robot)"
         }
       ]
     },
     "views": {
-      "ollama-sidebar": [
+      "olliberty-sidebar": [
         {
           "type": "webview",
-          "id": "ollama.chatView",
+          "id": "olliberty.chatView",
           "name": "Chat",
-          "contextualTitle": "Ollama Chat"
+          "contextualTitle": "Olliberty Chat"
         }
       ],
-      "ollama-right-panel": [
+      "olliberty-right-panel": [
         {
           "type": "webview",
-          "id": "ollama.rightPanelView",
+          "id": "olliberty.rightPanelView",
           "name": "Chat",
-          "contextualTitle": "Ollama Chat"
+          "contextualTitle": "Olliberty Chat"
         }
       ]
     },
     "panels": {
-      "default": "ollama-right-panel"
+      "default": "olliberty-right-panel"
     },
     "menus": {
       "view/title": [
         {
-          "command": "ollama.clearChat",
-          "when": "view == ollama.chatView || view == ollama.rightPanelView",
+          "command": "olliberty.clearChat",
+          "when": "view == olliberty.chatView || view == olliberty.rightPanelView",
           "group": "navigation"
         }
       ],
       "view/item/context": [
         {
-          "command": "ollama.openRightPanel",
-          "when": "view == ollama.chatView",
+          "command": "olliberty.openRightPanel",
+          "when": "view == olliberty.chatView",
           "group": "inline"
         }
       ]
     },
     "configuration": {
-      "title": "Ollama Assistant",
+      "title": "Olliberty",
       "properties": {
-        "ollama.model": {
+        "olliberty.model": {
           "type": "string",
           "default": "codellama",
           "description": "Model name sent to the Ollama daemon"
         },
-        "ollama.temperature": {
+        "olliberty.temperature": {
           "type": "number",
           "default": 0.2,
           "minimum": 0,
           "maximum": 1,
           "description": "Sampling temperature"
         },
-        "ollama.maxTokens": {
+        "olliberty.maxTokens": {
           "type": "number",
           "default": 2048,
           "minimum": 1,
           "maximum": 8192,
           "description": "Maximum number of tokens to generate"
         },
-        "ollama.contextLength": {
+        "olliberty.contextLength": {
           "type": "number",
           "default": 4096,
           "minimum": 512,

@@ -58,7 +58,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
   /* Command palette action */
   ctx.subscriptions.push(
     vscode.commands.registerCommand(
-      'ollama.askAI',
+      'olliberty.askAI',
       () => new AskAICommand(container.client).execute(),
     ),
   );
@@ -66,25 +66,25 @@ export function activate(ctx: vscode.ExtensionContext): void {
   /* Open chat widget command (Left Sidebar) */
   ctx.subscriptions.push(
     vscode.commands.registerCommand(
-      'ollama.openChatWidget',
+      'olliberty.openChatWidget',
       async () => {
         try {
           // First, try to show the view container
-          await vscode.commands.executeCommand('workbench.view.extension.ollama-sidebar');
-          
+          await vscode.commands.executeCommand('workbench.view.extension.olliberty-sidebar');
+
           // Then focus on the specific chat view
-          await vscode.commands.executeCommand('ollama.chatView.focus');
-          
+          await vscode.commands.executeCommand('olliberty.chatView.focus');
+
           // Show a helpful message
-          vscode.window.showInformationMessage('Ollama Chat Widget opened! Look for the 🤖 icon in the Activity Bar.');
-          
+          vscode.window.showInformationMessage('Olliberty Chat Widget opened! Look for the 🤖 icon in the Activity Bar.');
+
         } catch (error) {
           // Fallback: try to open the view directly
           try {
-            await vscode.commands.executeCommand('workbench.view.extension.ollama-sidebar');
+            await vscode.commands.executeCommand('workbench.view.extension.olliberty-sidebar');
           } catch (fallbackError) {
             vscode.window.showErrorMessage(
-              'Could not open Ollama Chat Widget',
+              'Could not open Olliberty Chat Widget',
               {
                 detail: 'Please try clicking the 🤖 icon in the Activity Bar (left sidebar) to open the chat widget.',
                 modal: false,
@@ -99,37 +99,37 @@ export function activate(ctx: vscode.ExtensionContext): void {
   /* Open right panel command (Secondary Sidebar) */
   ctx.subscriptions.push(
     vscode.commands.registerCommand(
-      'ollama.openRightPanel',
+      'olliberty.openRightPanel',
       async () => {
         try {
           // First, ensure the secondary sidebar is visible
           await vscode.commands.executeCommand('workbench.action.toggleSecondarySideBarVisibility');
-          
+
           // Show the secondary sidebar view container
-          await vscode.commands.executeCommand('workbench.view.extension.ollama-right-panel');
-          
+          await vscode.commands.executeCommand('workbench.view.extension.olliberty-right-panel');
+
           // Focus on the right panel view
-          await vscode.commands.executeCommand('ollama.rightPanelView.focus');
-          
+          await vscode.commands.executeCommand('olliberty.rightPanelView.focus');
+
           // Show a helpful message with instructions
           vscode.window.showInformationMessage(
-            'Ollama Chat opened in Right Panel!',
+            'Olliberty Chat opened in Right Panel!',
             {
               detail: 'Look for the 🤖 icon in the secondary sidebar (right panel, next to Extensions, Commit Graph, etc.). If you don\'t see it, try the keyboard shortcut Ctrl+Shift+Alt+O.',
               modal: false,
             }
           );
-          
+
         } catch (error) {
           // Fallback: try to open the view directly
           try {
-            await vscode.commands.executeCommand('workbench.view.extension.ollama-right-panel');
-            vscode.window.showInformationMessage('Ollama Chat opened! Look for the 🤖 icon in the secondary sidebar.');
+            await vscode.commands.executeCommand('workbench.view.extension.olliberty-right-panel');
+            vscode.window.showInformationMessage('Olliberty Chat opened! Look for the 🤖 icon in the secondary sidebar.');
           } catch (fallbackError) {
             vscode.window.showErrorMessage(
-              'Could not open Ollama Chat in Right Panel',
+              'Could not open Olliberty Chat in Right Panel',
               {
-                detail: 'Please try:\n1. Press Ctrl+Shift+Alt+O\n2. Look for the 🤖 icon in the secondary sidebar (right panel)\n3. Or use "View" → "Open View..." → "Ollama Chat"',
+                detail: 'Please try:\n1. Press Ctrl+Shift+Alt+O\n2. Look for the 🤖 icon in the secondary sidebar (right panel)\n3. Or use "View" → "Open View..." → "Olliberty Chat"',
                 modal: false,
               }
             );
@@ -142,17 +142,17 @@ export function activate(ctx: vscode.ExtensionContext): void {
   /* Show secondary sidebar command */
   ctx.subscriptions.push(
     vscode.commands.registerCommand(
-      'ollama.showSecondarySidebar',
+      'olliberty.showSecondarySidebar',
       async () => {
         try {
           // Toggle the secondary sidebar visibility
           await vscode.commands.executeCommand('workbench.action.toggleSecondarySideBarVisibility');
-          
+
           // Show a helpful message
           vscode.window.showInformationMessage(
             'Secondary Sidebar Toggled!',
             {
-              detail: 'Look for the 🤖 icon in the secondary sidebar (right panel). If you don\'t see it, try "View" → "Open View..." → "Ollama Chat".',
+              detail: 'Look for the 🤖 icon in the secondary sidebar (right panel). If you don\'t see it, try "View" → "Open View..." → "Olliberty Chat".',
               modal: false,
             }
           );
@@ -173,7 +173,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
   /* Clear chat command */
   ctx.subscriptions.push(
     vscode.commands.registerCommand(
-      'ollama.clearChat',
+      'olliberty.clearChat',
       () => {
         // Clear both chat providers
         chatProvider.clearChat();
@@ -185,7 +185,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
   /* Show installation instructions command */
   ctx.subscriptions.push(
     vscode.commands.registerCommand(
-      'ollama.showInstallationInstructions',
+      'olliberty.showInstallationInstructions',
       async () => {
         const { OllamaInstaller } = await import('./ui/ollamaInstaller');
         const installInfo = OllamaInstaller.getInstallationInfo();
@@ -197,9 +197,9 @@ export function activate(ctx: vscode.ExtensionContext): void {
   /* React to settings changes */
   ctx.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(e => {
-      if (e.affectsConfiguration('ollama')) {
+      if (e.affectsConfiguration('olliberty')) {
         container.settings.reload();
-        vscode.window.showInformationMessage('Ollama settings reloaded');
+        vscode.window.showInformationMessage('Olliberty settings reloaded');
       }
     }),
   );

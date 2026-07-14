@@ -94,7 +94,7 @@ export class InlineProvider implements vscode.InlineCompletionItemProvider {
         this.statusBarItem.color = new vscode.ThemeColor('statusBarItem.warningForeground');
         this.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
         this.statusBarItem.tooltip = `Ollama is not installed on ${osInfo}. Click to install.`;
-        this.statusBarItem.command = 'ollama.showInstallationInstructions';
+        this.statusBarItem.command = 'olliberty.showInstallationInstructions';
         
         if (!this.hasShownInstallationDialog) {
           this.hasShownInstallationDialog = true;
@@ -107,7 +107,7 @@ export class InlineProvider implements vscode.InlineCompletionItemProvider {
       this.statusBarItem.color = new vscode.ThemeColor('statusBarItem.errorForeground');
       this.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
       this.statusBarItem.tooltip = `Failed to connect to Ollama on ${osInfo}. Click to install.`;
-      this.statusBarItem.command = 'ollama.showInstallationInstructions';
+      this.statusBarItem.command = 'olliberty.showInstallationInstructions';
       
       if (!this.hasShownInstallationDialog) {
         this.hasShownInstallationDialog = true;

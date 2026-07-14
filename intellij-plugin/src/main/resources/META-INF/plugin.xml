@@ -1,10 +1,10 @@
 <idea-plugin>
-    <id>com.codesapienbe.ollama-cursor</id>
-    <name>Ollama Assistant</name>
+    <id>com.codesapienbe.olliberty</id>
+    <name>Olliberty</name>
     <vendor url="https://github.com/codesapienbe/ollama-cursor">codesapienbe</vendor>
 
     <description><![CDATA[
-        Local, private AI coding assistance powered by <a href="https://ollama.com">Ollama</a>.
+        <b>Olliberty</b> — local, private AI coding assistance powered by <a href="https://ollama.com">Ollama</a>.
         Chat with a locally running model, ask ad-hoc questions about your code, and get
         OS-specific help installing Ollama when it isn't detected. No code ever leaves your machine.
     ]]></description>
@@ -16,28 +16,28 @@
                 parentId="tools"
                 instance="com.codesapienbe.ollama.settings.OllamaSettingsConfigurable"
                 id="com.codesapienbe.ollama.settings.OllamaSettingsConfigurable"
-                displayName="Ollama Assistant"/>
-        <toolWindow id="Ollama Assistant"
+                displayName="Olliberty"/>
+        <toolWindow id="Olliberty"
                     anchor="right"
                     factoryClass="com.codesapienbe.ollama.ui.OllamaChatToolWindowFactory"/>
-        <notificationGroup id="Ollama Assistant" displayType="STICKY_BALLOON"/>
+        <notificationGroup id="Olliberty" displayType="STICKY_BALLOON"/>
     </extensions>
 
     <actions>
-        <group id="com.codesapienbe.ollama.ActionGroup" text="Ollama" popup="true">
-            <action id="com.codesapienbe.ollama.AskAI"
+        <group id="com.codesapienbe.olliberty.ActionGroup" text="Olliberty" popup="true">
+            <action id="com.codesapienbe.olliberty.AskAI"
                     class="com.codesapienbe.ollama.actions.AskAIAction"
-                    text="Ollama: Ask AI…"
+                    text="Olliberty: Ask AI…"
                     description="Ask the local Ollama model a question"/>
-            <action id="com.codesapienbe.ollama.OpenChat"
+            <action id="com.codesapienbe.olliberty.OpenChat"
                     class="com.codesapienbe.ollama.actions.OpenChatAction"
-                    text="Ollama: Open Chat Widget"
-                    description="Open the Ollama chat tool window">
+                    text="Olliberty: Open Chat Widget"
+                    description="Open the Olliberty chat tool window">
                 <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift O"/>
             </action>
-            <action id="com.codesapienbe.ollama.ShowInstallationInstructions"
+            <action id="com.codesapienbe.olliberty.ShowInstallationInstructions"
                     class="com.codesapienbe.ollama.actions.ShowInstallationInstructionsAction"
-                    text="Ollama: Show Installation Instructions"
+                    text="Olliberty: Show Installation Instructions"
                     description="Show OS-specific Ollama installation instructions"/>
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </group>
