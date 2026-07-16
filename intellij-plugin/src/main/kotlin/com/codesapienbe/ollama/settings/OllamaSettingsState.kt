@@ -9,7 +9,7 @@ import com.intellij.openapi.components.service
 
 /** Single source of truth for user-configurable Ollama options, persisted across restarts. */
 @Service
-@State(name = "OllamaSettingsState", storages = [Storage("ollama-assistant.xml", roamingType = RoamingType.LOCAL)])
+@State(name = "OllamaSettingsState", storages = [Storage("ollama-assistant.xml", roamingType = RoamingType.DISABLED)])
 class OllamaSettingsState : PersistentStateComponent<OllamaSettingsState.State> {
 
     data class State(
