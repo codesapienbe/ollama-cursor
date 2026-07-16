@@ -4,7 +4,7 @@
 
 import * as https from 'https';
 import * as http from 'http';
-import { Settings } from './settings';
+import { ReasoningEffort, Settings } from './settings';
 
 export interface GenerateParams {
   prompt: string;
@@ -24,9 +24,10 @@ export class OllamaClient {
 
   /* High-level streaming function used by UI components */
   async generate(params: GenerateParams, abort?: AbortSignal): Promise<string> {
+    const prompt = this.applyEffortToPrompt(params.prompt);
     const requestData = JSON.stringify({
       model: this.settings.model,
-      prompt: params.prompt,
+      prompt,
       ...(this.settings.systemPrompt ? { system: this.settings.systemPrompt } : {}),
       temperature: this.settings.temperature,
       stream: params.stream ?? false,
@@ -154,5 +155,83 @@ export class OllamaClient {
     } catch {
       return false;
     }
+  }
+
+  async listModels(): Promise<string[]> {
+    const url = new URL('/api/tags', this.settings.url);
+    const options = {
+      method: 'GET',
+      timeout: 10_000,
+    };
+
+    return new Promise<string[]>((resolve, reject) => {
+      const req = this.transport(url).request(url, options, (res) => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`Ollama: HTTP ${res.statusCode} ${res.statusMessage}`));
+          return;
+        }
+
+        let body = '';
+        res.on('data', chunk => {
+          body += chunk.toString();
+        });
+
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(body) as { models?: Array<{ name?: string; model?: string }> };
+            const models = (parsed.models ?? [])
+              .map(entry => entry.name ?? entry.model)
+              .filter((name): name is string => typeof name === 'string' && name.trim().length > 0);
+            resolve(models);
+          } catch {
+            reject(new Error('Failed to parse model list from Ollama'));
+          }
+        });
+
+        res.on('error', (err) => {
+          reject(err);
+        });
+      });
+
+      req.on('error', (err) => {
+        reject(new Error(`Failed to connect to Ollama: ${err.message}`));
+      });
+
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Request to Ollama timed out'));
+      });
+
+      req.setTimeout(10_000);
+      req.end();
+    });
+  }
+
+  getCurrentModel(): string {
+    return this.settings.model;
+  }
+
+  async setModel(model: string): Promise<void> {
+    await this.settings.setModel(model);
+  }
+
+  getEffort(): ReasoningEffort {
+    return this.settings.effort;
+  }
+
+  async setEffort(effort: ReasoningEffort): Promise<void> {
+    await this.settings.setEffort(effort);
+  }
+
+  private applyEffortToPrompt(prompt: string): string {
+    const instructionsByEffort: Record<ReasoningEffort, string> = {
+      minimal: 'Keep reasoning minimal and provide a direct answer.',
+      low: 'Use light reasoning and keep the response concise.',
+      medium: 'Use balanced reasoning with concise explanations.',
+      high: 'Use deeper reasoning, including key tradeoffs and edge cases.',
+      max: 'Use very thorough reasoning before giving the final answer.'
+    };
+
+    return `[Reasoning effort: ${this.settings.effort}] ${instructionsByEffort[this.settings.effort]}\n\n${prompt}`;
   }
 }

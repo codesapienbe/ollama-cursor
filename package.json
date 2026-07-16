@@ -127,8 +127,20 @@
         },
         "olliberty.model": {
           "type": "string",
-          "default": "codellama",
+          "default": "gemma4:12b-it-qat",
           "description": "Model name sent to the Ollama daemon"
+        },
+        "olliberty.effort": {
+          "type": "string",
+          "enum": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "max"
+          ],
+          "default": "medium",
+          "description": "Reasoning effort preset used to steer response depth"
         },
         "olliberty.systemPrompt": {
           "type": "string",

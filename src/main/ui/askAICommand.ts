@@ -7,7 +7,7 @@ import * as path       from 'path';
 import * as fs         from 'fs';
 import { OllamaClient } from '../client';
 import { OllamaInstaller } from './ollamaInstaller';
-import { Settings } from '../settings';
+import { ReasoningEffort, Settings } from '../settings';
 
 export class AskAICommand {
   constructor(private readonly client: OllamaClient) {}
@@ -112,9 +112,10 @@ ${question}
   ): Promise<void> {
     // Modified client call for streaming to file
     const settings = new Settings();
+    const promptWithEffort = this._applyEffortToPrompt(prompt, settings.effort);
     const requestData = JSON.stringify({
       model: settings.model,
-      prompt: prompt,
+      prompt: promptWithEffort,
       ...(settings.systemPrompt ? { system: settings.systemPrompt } : {}),
       temperature: settings.temperature,
       stream: true,
@@ -271,5 +272,17 @@ ${question}
     }
     
     return errorMsg;
+  }
+
+  private _applyEffortToPrompt(prompt: string, effort: ReasoningEffort): string {
+    const instructionsByEffort: Record<ReasoningEffort, string> = {
+      minimal: 'Keep reasoning minimal and provide a direct answer.',
+      low: 'Use light reasoning and keep the response concise.',
+      medium: 'Use balanced reasoning with concise explanations.',
+      high: 'Use deeper reasoning, including key tradeoffs and edge cases.',
+      max: 'Use very thorough reasoning before giving the final answer.'
+    };
+
+    return `[Reasoning effort: ${effort}] ${instructionsByEffort[effort]}\n\n${prompt}`;
   }
 }

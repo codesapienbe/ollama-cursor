@@ -92,12 +92,24 @@ class OllamaChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
     }
 
     private fun send(browser: JBCefBrowser, text: String) {
-        messages.add(ChatMessage("user", text, System.currentTimeMillis()))
-        pushState(browser)
+        val trimmedText = text.trim()
+        if (trimmedText.isEmpty()) return
+        val slashCommand = trimmedText.startsWith("/")
+
+        if (!slashCommand) {
+            messages.add(ChatMessage("user", trimmedText, System.currentTimeMillis()))
+            pushState(browser)
+        }
 
         ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Olliberty: thinking…", false) {
             override fun run(indicator: ProgressIndicator) {
                 try {
+                    val commandResponse = tryHandleSlashCommand(trimmedText)
+                    if (commandResponse != null) {
+                        messages.add(ChatMessage("system", commandResponse, System.currentTimeMillis()))
+                        return
+                    }
+
                     if (!client.isHealthy()) {
                         isConnected = false
                         messages.add(ChatMessage("system", "Ollama not reachable on ${OllamaSettingsState.getInstance().url}", System.currentTimeMillis()))
@@ -108,7 +120,7 @@ class OllamaChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
                         return
                     }
                     isConnected = true
-                    val response = client.generate(text)
+                    val response = client.generate(trimmedText)
                     messages.add(ChatMessage("assistant", response, System.currentTimeMillis()))
                 } catch (ex: Exception) {
                     val message = if (ex is OllamaException) ex.message else ex.message
@@ -118,6 +130,71 @@ class OllamaChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
                 }
             }
         })
+    }
+
+    private fun tryHandleSlashCommand(input: String): String? {
+        if (!input.startsWith("/")) return null
+
+        val tokens = input.drop(1).trim().split(Regex("\\s+"), limit = 2)
+        val command = tokens.firstOrNull()?.lowercase().orEmpty()
+        val argument = tokens.getOrNull(1)?.trim().orEmpty()
+
+        return when (command) {
+            "models" -> {
+                val models = client.listModels()
+                if (models.isEmpty()) {
+                    "📦 No models found in Ollama. Pull one first, for example: `ollama pull gemma4:12b-it-qat`."
+                } else {
+                    val current = client.getCurrentModel()
+                    val lines = models.joinToString("\n") { model ->
+                        "- `$model`${if (model == current) " **(current)**" else ""}"
+                    }
+                    "📦 **Available models (${models.size})**\n\n$lines"
+                }
+            }
+            "model" -> {
+                if (argument.isBlank()) {
+                    "🤖 **Current model:** `${client.getCurrentModel()}`\n\nUse `/model <name>` to switch, or `/models` to list all available models."
+                } else {
+                    val available = runCatching { client.listModels() }.getOrDefault(emptyList())
+                    if (available.isNotEmpty() && !available.contains(argument)) {
+                        val suggestions = available.filter { it.contains(argument, ignoreCase = true) }.take(5)
+                        val suggestionText = if (suggestions.isEmpty()) "" else "\n\nClosest matches:\n${suggestions.joinToString("\n") { "- `$it`" }}"
+                        "⚠️ Model `$argument` is not in your local Ollama models. Run `/models` to see available models.$suggestionText"
+                    } else {
+                        client.setModel(argument)
+                        "✅ Default model switched to `$argument`."
+                    }
+                }
+            }
+            "effort" -> {
+                if (argument.isBlank()) {
+                    "🧠 **Current effort:** `${client.getEffort()}`\n\nUse `/effort minimal|low|medium|high|max` to change it."
+                } else {
+                    val normalized = argument.lowercase()
+                    if (normalized !in setOf("minimal", "low", "medium", "high", "max")) {
+                        "⚠️ Unknown effort value. Use one of: `minimal`, `low`, `medium`, `high`, `max`."
+                    } else {
+                        client.setEffort(normalized)
+                        "✅ Reasoning effort set to `$normalized`."
+                    }
+                }
+            }
+            "help" -> slashHelp()
+            else -> "⚠️ Unknown command: `/$command`\n\n${slashHelp()}"
+        }
+    }
+
+    private fun slashHelp(): String {
+        return """
+            🛠️ **Available slash commands**
+
+            - `/models` — list available local Ollama models
+            - `/model` — show the current default model
+            - `/model <name>` — switch the default model
+            - `/effort` — show current reasoning effort
+            - `/effort minimal|low|medium|high|max` — set reasoning effort
+        """.trimIndent()
     }
 
     private fun pushState(browser: JBCefBrowser) {

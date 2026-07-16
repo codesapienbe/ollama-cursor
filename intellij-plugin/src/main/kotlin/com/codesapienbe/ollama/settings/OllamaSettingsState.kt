@@ -14,7 +14,8 @@ class OllamaSettingsState : PersistentStateComponent<OllamaSettingsState.State> 
 
     data class State(
         var url: String = "http://localhost:11434",
-        var model: String = "codellama",
+        var model: String = "gemma4:12b-it-qat",
+        var effort: String = "medium",
         var systemPrompt: String = "",
         var temperature: Double = 0.2,
         var maxTokens: Int = 2048,
@@ -36,6 +37,15 @@ class OllamaSettingsState : PersistentStateComponent<OllamaSettingsState.State> 
     var model: String
         get() = state.model
         set(value) { state.model = value }
+
+    var effort: String
+        get() = state.effort
+        set(value) {
+            state.effort = when (value.trim().lowercase()) {
+                "minimal", "low", "medium", "high", "max" -> value.trim().lowercase()
+                else -> "medium"
+            }
+        }
 
     var systemPrompt: String
         get() = state.systemPrompt

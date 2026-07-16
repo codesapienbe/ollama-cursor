@@ -369,7 +369,7 @@ export class OllamaInstaller {
 ollama serve
 
 # Download a model (example)
-ollama pull codellama
+ollama pull gemma4:12b-it-qat
 
 # Verify installation
 ollama list</pre>

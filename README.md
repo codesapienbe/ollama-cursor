@@ -80,7 +80,7 @@ Olliberty automatically detects when Ollama is not available and provides tailor
 ### Model Setup
 After installing Ollama, pull your desired model:
 ```bash
-ollama pull codellama
+ollama pull gemma4:12b-it-qat
 # or
 ollama pull llama2
 ollama pull deepseek-coder
@@ -135,7 +135,8 @@ Configure Olliberty through VS Code settings:
 ```json
 {
   "olliberty.url": "http://localhost:11434",
-  "olliberty.model": "codellama",
+  "olliberty.model": "gemma4:12b-it-qat",
+  "olliberty.effort": "medium",
   "olliberty.systemPrompt": "",
   "olliberty.temperature": 0.2,
   "olliberty.maxTokens": 2048,
@@ -146,11 +147,22 @@ Configure Olliberty through VS Code settings:
 ### Settings
 
 - **`olliberty.url`**: Base URL of the Ollama server (default: "http://localhost:11434")
-- **`olliberty.model`**: Model name sent to the Ollama daemon (default: "codellama")
+- **`olliberty.model`**: Model name sent to the Ollama daemon (default: "gemma4:12b-it-qat")
+- **`olliberty.effort`**: Response depth preset (`minimal`, `low`, `medium`, `high`, `max`; default: `medium`)
 - **`olliberty.systemPrompt`**: System prompt sent with every request (default: empty, i.e. none)
 - **`olliberty.temperature`**: Sampling temperature 0.0-1.0 (default: 0.2)
 - **`olliberty.maxTokens`**: Maximum tokens to generate (default: 2048)
 - **`olliberty.contextLength`**: Maximum context length (default: 4096)
+
+### Chat slash commands
+
+Inside the chat widget, you can control model selection without opening settings:
+
+- `/models` → list local Ollama models from `GET /api/tags`
+- `/model` → show current default model
+- `/model <name>` → switch default model (persists to your Olliberty settings)
+- `/effort` → show current reasoning effort
+- `/effort minimal|low|medium|high|max` → switch reasoning effort
 
 The IntelliJ IDEA plugin exposes the same options under **Settings/Preferences → Tools → Olliberty**.
 

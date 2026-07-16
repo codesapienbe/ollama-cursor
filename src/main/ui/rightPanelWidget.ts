@@ -8,6 +8,7 @@
 import * as vscode from 'vscode';
 import { OllamaClient } from '../client';
 import { OllamaInstaller } from './ollamaInstaller';
+import { runChatSlashCommand } from './chatCommands';
 
 export interface ChatMessage {
   id: string;
@@ -147,6 +148,19 @@ export class RightPanelWidgetProvider implements vscode.WebviewViewProvider {
   private async _handleSendMessage(message: string): Promise<void> {
     if (!message.trim()) return;
 
+    const trimmedMessage = message.trim();
+
+    try {
+      const commandResponse = await runChatSlashCommand(trimmedMessage, this._client);
+      if (commandResponse !== null) {
+        this._addSystemMessage(commandResponse);
+        return;
+      }
+    } catch (error) {
+      this._addSystemMessage(this._formatErrorMessage(error));
+      return;
+    }
+
     // Check connection before sending message
     if (!this._isConnected) {
       await this._checkConnection();
@@ -160,7 +174,7 @@ export class RightPanelWidgetProvider implements vscode.WebviewViewProvider {
     const userMessage: ChatMessage = {
       id: this._generateId(),
       role: 'user',
-      content: message.trim(),
+      content: trimmedMessage,
       timestamp: Date.now(),
     };
 
@@ -170,21 +184,21 @@ export class RightPanelWidgetProvider implements vscode.WebviewViewProvider {
     try {
       // Get current editor context for better responses
       const editor = vscode.window.activeTextEditor;
-      let contextPrompt = message;
+      let contextPrompt = trimmedMessage;
 
       if (editor) {
         const selection = editor.selection;
         const selectedText = editor.document.getText(selection);
         
         if (selectedText) {
-          contextPrompt = `Based on this selected code:\n\`\`\`${editor.document.languageId}\n${selectedText}\n\`\`\`\n\n${message}`;
+          contextPrompt = `Based on this selected code:\n\`\`\`${editor.document.languageId}\n${selectedText}\n\`\`\`\n\n${trimmedMessage}`;
         } else {
           const fileName = editor.document.fileName;
           const fileContent = editor.document.getText();
           
           // Include file context if reasonable size
           if (fileContent.length < 2000) {
-            contextPrompt = `In the context of file ${fileName}:\n\`\`\`${editor.document.languageId}\n${fileContent}\n\`\`\`\n\n${message}`;
+            contextPrompt = `In the context of file ${fileName}:\n\`\`\`${editor.document.languageId}\n${fileContent}\n\`\`\`\n\n${trimmedMessage}`;
           }
         }
       }
