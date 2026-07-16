@@ -340,8 +340,10 @@ export class ChatWidgetProvider implements vscode.WebviewViewProvider {
             <div id="install-button-container" style="display: none;">
                 <button id="install-button" class="install-btn">📥 Install Ollama</button>
             </div>
-            <textarea id="message-input" placeholder="Ask Ollama..." rows="3"></textarea>
-            <button id="send-button">Send</button>
+            <div class="input-row">
+                <textarea id="message-input" placeholder="Ask Ollama..." rows="1"></textarea>
+                <button id="send-button" aria-label="Send" title="Send">↑</button>
+            </div>
         </div>
     </div>
 
@@ -402,7 +404,7 @@ export class ChatWidgetProvider implements vscode.WebviewViewProvider {
                 const messageElement = document.createElement('div');
                 messageElement.className = \`message \${message.role}\`;
                 
-                let content = message.content;
+                let content = escapeHtml(message.content);
                 if (message.role === 'system') {
                     content = content.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
                 } else {
@@ -410,8 +412,11 @@ export class ChatWidgetProvider implements vscode.WebviewViewProvider {
                         .replace(/\`([^\`]+)\`/g, '<code>$1</code>');
                 }
                 
+                const avatarIcon = message.role === 'assistant' ? '🤖' : message.role === 'user' ? '🧑' : 'ℹ️';
+
                 messageElement.innerHTML = \`
                     <div class="message-header">
+                        <span class="avatar">\${avatarIcon}</span>
                         <span class="role">\${message.role}</span>
                         <span class="timestamp">\${new Date(message.timestamp).toLocaleTimeString()}</span>
                     </div>
