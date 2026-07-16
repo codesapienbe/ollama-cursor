@@ -115,6 +115,7 @@ ${question}
     const requestData = JSON.stringify({
       model: settings.model,
       prompt: prompt,
+      ...(settings.systemPrompt ? { system: settings.systemPrompt } : {}),
       temperature: settings.temperature,
       stream: true,
       options: {
@@ -123,11 +124,9 @@ ${question}
       },
     });
 
-    const http = require('http');
+    const url = new URL('/api/generate', settings.url);
+    const transport = url.protocol === 'https:' ? require('https') : require('http');
     const options = {
-      hostname: 'localhost',
-      port: 11434,
-      path: '/api/generate',
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -136,7 +135,7 @@ ${question}
     };
 
     return new Promise<void>((resolve, reject) => {
-      const req = http.request(options, (res: any) => {
+      const req = transport.request(url, options, (res: any) => {
         if (res.statusCode !== 200) {
           reject(new Error(`Ollama: HTTP ${res.statusCode} ${res.statusMessage}`));
           return;

@@ -13,10 +13,13 @@ export interface GenerateParams {
 
 export class OllamaClient {
   private readonly settings: Settings;
-  private readonly baseUrl = 'http://localhost:11434/api/generate';
 
   constructor(settings: Settings) {
     this.settings = settings;
+  }
+
+  private transport(url: URL) {
+    return url.protocol === 'https:' ? https : http;
   }
 
   /* High-level streaming function used by UI components */
@@ -24,6 +27,7 @@ export class OllamaClient {
     const requestData = JSON.stringify({
       model: this.settings.model,
       prompt: params.prompt,
+      ...(this.settings.systemPrompt ? { system: this.settings.systemPrompt } : {}),
       temperature: this.settings.temperature,
       stream: params.stream ?? false,
       options: {
@@ -32,10 +36,8 @@ export class OllamaClient {
       },
     });
 
+    const url = new URL('/api/generate', this.settings.url);
     const options = {
-      hostname: 'localhost',
-      port: 11434,
-      path: '/api/generate',
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -44,7 +46,7 @@ export class OllamaClient {
     };
 
     return new Promise<string>((resolve, reject) => {
-      const req = http.request(options, (res) => {
+      const req = this.transport(url).request(url, options, (res) => {
         if (res.statusCode !== 200) {
           reject(new Error(`Ollama: HTTP ${res.statusCode} ${res.statusMessage}`));
           return;
@@ -126,16 +128,14 @@ export class OllamaClient {
   /* Health check method */
   async isHealthy(): Promise<boolean> {
     try {
+      const url = new URL('/api/tags', this.settings.url);
       const options = {
-        hostname: 'localhost',
-        port: 11434,
-        path: '/api/tags',
         method: 'GET',
         timeout: 5000,
       };
 
       return new Promise<boolean>((resolve) => {
-        const req = http.request(options, (res) => {
+        const req = this.transport(url).request(url, options, (res) => {
           resolve(res.statusCode === 200);
         });
 

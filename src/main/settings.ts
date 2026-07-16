@@ -7,7 +7,9 @@
  export class Settings {
    private cfg = vscode.workspace.getConfiguration('olliberty');
  
+   get url(): string           { return this.cfg.get<string>('url')?.trim() || 'http://localhost:11434'; }
    get model(): string         { return this.cfg.get('model')         ?? 'codellama'; }
+   get systemPrompt(): string  { return this.cfg.get('systemPrompt')  ?? '';          }
    get temperature(): number   { return this.cfg.get('temperature')   ?? 0.2;        }
    get maxTokens(): number     { return this.cfg.get('maxTokens')     ?? 2048;       }
    get contextLength(): number { return this.cfg.get('contextLength') ?? 4096;       }

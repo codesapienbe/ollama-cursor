@@ -13,7 +13,9 @@ import com.intellij.openapi.components.service
 class OllamaSettingsState : PersistentStateComponent<OllamaSettingsState.State> {
 
     data class State(
+        var url: String = "http://localhost:11434",
         var model: String = "codellama",
+        var systemPrompt: String = "",
         var temperature: Double = 0.2,
         var maxTokens: Int = 2048,
         var contextLength: Int = 4096,
@@ -27,9 +29,17 @@ class OllamaSettingsState : PersistentStateComponent<OllamaSettingsState.State> 
         this.state = state
     }
 
+    var url: String
+        get() = state.url
+        set(value) { state.url = value.trim().trimEnd('/').ifEmpty { "http://localhost:11434" } }
+
     var model: String
         get() = state.model
         set(value) { state.model = value }
+
+    var systemPrompt: String
+        get() = state.systemPrompt
+        set(value) { state.systemPrompt = value }
 
     var temperature: Double
         get() = state.temperature

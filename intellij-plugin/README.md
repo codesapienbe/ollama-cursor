@@ -42,8 +42,8 @@ This launches a sandboxed IntelliJ IDEA instance with the plugin already install
 
 - **Tools → Olliberty → Olliberty: Open Chat Widget** (`Ctrl+Shift+O` / `Cmd+Shift+O`) opens the chat tool window (docked on the right by default).
 - **Tools → Olliberty → Olliberty: Ask AI…** prompts for a question and streams the response into a timestamped Markdown file under `.ollama/` in the project root.
-- **Tools → Olliberty → Olliberty: Show Installation Instructions** shows OS-specific install steps if Ollama isn't reachable on `localhost:11434`.
-- **Settings/Preferences → Tools → Olliberty** configures the model, temperature, max tokens, and context length — the same settings the VS Code extension exposes.
+- **Tools → Olliberty → Olliberty: Show Installation Instructions** shows OS-specific install steps if Ollama isn't reachable at the configured server URL.
+- **Settings/Preferences → Tools → Olliberty** configures the server URL, model, system prompt, temperature, max tokens, and context length — the same settings the VS Code extension exposes.
 
 ## Notes on versions
 

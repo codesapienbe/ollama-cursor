@@ -9,12 +9,13 @@ import java.nio.charset.StandardCharsets
 /** Stateless HTTP client that talks to the local Ollama daemon's REST API. */
 class OllamaClient(private val settings: OllamaSettingsState = OllamaSettingsState.getInstance()) {
 
-    private val baseUrl = "http://localhost:11434"
+    private val baseUrl: String get() = settings.url
 
     /** Blocking, non-streaming completion call; run off the EDT. */
     fun generate(prompt: String): String {
+        val systemField = if (settings.systemPrompt.isNotBlank()) ""","system":${JsonLite.escape(settings.systemPrompt)}""" else ""
         val payload = """
-            {"model":${JsonLite.escape(settings.model)},"prompt":${JsonLite.escape(prompt)},"stream":false,"temperature":${settings.temperature},"options":{"num_predict":${settings.maxTokens},"num_ctx":${settings.contextLength}}}
+            {"model":${JsonLite.escape(settings.model)},"prompt":${JsonLite.escape(prompt)}$systemField,"stream":false,"temperature":${settings.temperature},"options":{"num_predict":${settings.maxTokens},"num_ctx":${settings.contextLength}}}
         """.trimIndent()
 
         val connection = (URI.create("$baseUrl/api/generate").toURL().openConnection() as HttpURLConnection).apply {

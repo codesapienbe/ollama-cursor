@@ -3,6 +3,7 @@ package com.codesapienbe.ollama.ui
 import com.codesapienbe.ollama.OllamaClient
 import com.codesapienbe.ollama.OllamaException
 import com.codesapienbe.ollama.OllamaInstaller
+import com.codesapienbe.ollama.settings.OllamaSettingsState
 import com.codesapienbe.ollama.util.JsonLite
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.progress.ProgressIndicator
@@ -99,7 +100,7 @@ class OllamaChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
                 try {
                     if (!client.isHealthy()) {
                         isConnected = false
-                        messages.add(ChatMessage("system", "Ollama not reachable on localhost:11434", System.currentTimeMillis()))
+                        messages.add(ChatMessage("system", "Ollama not reachable on ${OllamaSettingsState.getInstance().url}", System.currentTimeMillis()))
                         SwingUtilities.invokeLater {
                             pushState(browser)
                             OllamaInstaller.showNotFoundNotification(project)

@@ -134,7 +134,9 @@ Configure Olliberty through VS Code settings:
 
 ```json
 {
+  "olliberty.url": "http://localhost:11434",
   "olliberty.model": "codellama",
+  "olliberty.systemPrompt": "",
   "olliberty.temperature": 0.2,
   "olliberty.maxTokens": 2048,
   "olliberty.contextLength": 4096
@@ -143,10 +145,14 @@ Configure Olliberty through VS Code settings:
 
 ### Settings
 
+- **`olliberty.url`**: Base URL of the Ollama server (default: "http://localhost:11434")
 - **`olliberty.model`**: Model name sent to the Ollama daemon (default: "codellama")
+- **`olliberty.systemPrompt`**: System prompt sent with every request (default: empty, i.e. none)
 - **`olliberty.temperature`**: Sampling temperature 0.0-1.0 (default: 0.2)
 - **`olliberty.maxTokens`**: Maximum tokens to generate (default: 2048)
 - **`olliberty.contextLength`**: Maximum context length (default: 4096)
+
+The IntelliJ IDEA plugin exposes the same options under **Settings/Preferences → Tools → Olliberty**.
 
 ## Troubleshooting
 

@@ -120,10 +120,20 @@
     "configuration": {
       "title": "Olliberty",
       "properties": {
+        "olliberty.url": {
+          "type": "string",
+          "default": "http://localhost:11434",
+          "description": "Base URL of the Ollama server"
+        },
         "olliberty.model": {
           "type": "string",
           "default": "codellama",
           "description": "Model name sent to the Ollama daemon"
+        },
+        "olliberty.systemPrompt": {
+          "type": "string",
+          "default": "",
+          "description": "System prompt sent with every request (leave empty for none)"
         },
         "olliberty.temperature": {
           "type": "number",
