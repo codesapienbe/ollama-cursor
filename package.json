@@ -2,7 +2,7 @@
   "name": "olliberty",
   "displayName": "Olliberty",
   "description": "Local, private AI coding assistant powered by Ollama — for VS Code, Cursor, and IntelliJ IDEA.",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "publisher": "codesapienbe",
   "repository": {
     "type": "git",
