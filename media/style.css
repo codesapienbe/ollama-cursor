@@ -101,6 +101,64 @@ body::before {
   width: fit-content;
 }
 
+#agent-runs-container {
+  margin: 8px 12px 0;
+  padding: 10px 12px;
+  border-radius: var(--glass-radius-md);
+  background: var(--glass-surface);
+  backdrop-filter: blur(var(--glass-blur)) saturate(170%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(170%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}
+
+#agent-runs-title {
+  font-size: 0.8em;
+  font-weight: 600;
+  opacity: 0.86;
+  margin-bottom: 8px;
+}
+
+#agent-runs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.agent-run-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--vscode-chat-code-bg) 62%, transparent);
+}
+
+.agent-run-name {
+  font-size: 0.82em;
+  font-weight: 600;
+}
+
+.agent-run-status {
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.35px;
+  opacity: 0.9;
+}
+
+.agent-status-queued { color: var(--vscode-chat-warning); }
+.agent-status-running { color: var(--vscode-textLink-foreground); }
+.agent-status-completed { color: var(--vscode-chat-success); }
+.agent-status-failed { color: var(--vscode-chat-error); }
+
+.agent-detail {
+  grid-column: 1 / -1;
+  font-size: 0.76em;
+  opacity: 0.78;
+  line-height: 1.35;
+}
+
 .connection-error {
   color: var(--vscode-chat-error);
   display: flex;
@@ -292,6 +350,51 @@ body::before {
   display: flex;
   justify-content: center;
   margin: 4px 0;
+}
+
+#pending-edit-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--glass-radius-md);
+  background: color-mix(in srgb, var(--vscode-chat-code-bg) 55%, transparent);
+  border: 1px solid var(--glass-border);
+}
+
+#pending-edit-summary {
+  font-size: 0.82em;
+  line-height: 1.45;
+  opacity: 0.9;
+}
+
+.pending-edit-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.pending-edit-btn {
+  border: 1px solid var(--glass-border);
+  border-radius: var(--glass-radius-pill);
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 0.8em;
+  font-weight: 600;
+  transition: transform 0.2s var(--ease-spring), opacity 0.2s ease;
+}
+
+.pending-edit-btn:hover {
+  transform: translateY(-1px);
+}
+
+.pending-edit-btn.approve {
+  background: var(--accent-gradient);
+  color: white;
+}
+
+.pending-edit-btn.reject {
+  background: color-mix(in srgb, var(--vscode-chat-background) 72%, transparent);
+  color: var(--vscode-chat-foreground);
 }
 
 .install-btn {

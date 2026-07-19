@@ -30,6 +30,10 @@ The installable plugin ZIP is written to `build/distributions/olliberty-<version
 2. Select the ZIP from `build/distributions/`
 3. Restart the IDE when prompted
 
+If IntelliJ says the plugin cannot be installed because the same/newer version
+is already present, increment `pluginVersion` in `gradle.properties`, rebuild
+with `./gradlew buildPlugin`, then install the new ZIP.
+
 ## Try it without building a ZIP
 
 ```bash
@@ -52,6 +56,11 @@ Inside the chat input, slash commands are supported:
 - `/model <name>` switches the default model
 - `/effort` shows the current effort preset
 - `/effort minimal|low|medium|high|max` switches effort
+- `/path` shows the active filesystem scope used for prompt context
+- `/path <dir-or-file>` scopes chat context under that project-relative path
+- `/path reset` restores default scope to the project root
+
+By default, chat path resolution is rooted at the current project directory (`project.basePath`). Relative paths stay inside that project unless explicitly changed with `/path`.
 
 ## Notes on versions
 

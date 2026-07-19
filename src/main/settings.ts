@@ -9,6 +9,7 @@
  const DEFAULT_URL = 'http://localhost:11434';
  const DEFAULT_MODEL = 'gemma4:12b-it-qat';
  const DEFAULT_EFFORT: ReasoningEffort = 'medium';
+ const DEFAULT_ALLOWED_HOSTS = ['localhost', '127.0.0.1', '::1'];
  const VALID_EFFORTS: ReasoningEffort[] = ['minimal', 'low', 'medium', 'high', 'max'];
 
  export function isReasoningEffort(value: string): value is ReasoningEffort {
@@ -27,6 +28,31 @@
    get effort(): ReasoningEffort {
      const effort = (this.cfg.get<string>('effort') ?? DEFAULT_EFFORT).trim().toLowerCase();
      return isReasoningEffort(effort) ? effort : DEFAULT_EFFORT;
+   }
+   get autoApplyEdits(): boolean { return this.cfg.get<boolean>('autoApplyEdits') ?? false; }
+   get autoIndexWorkspace(): boolean { return this.cfg.get<boolean>('codeIndex.autoIndexWorkspace') ?? true; }
+   get codeIndexMaxFiles(): number { return this.cfg.get<number>('codeIndex.maxFiles') ?? 500; }
+   get codeIndexMaxFileSizeKb(): number { return this.cfg.get<number>('codeIndex.maxFileSizeKb') ?? 256; }
+   get codeIndexPreviewLines(): number { return this.cfg.get<number>('codeIndex.previewLines') ?? 35; }
+   get codeIndexStaleAfterMinutes(): number { return this.cfg.get<number>('codeIndex.staleAfterMinutes') ?? 10; }
+   get codeIndexExcludeGlob(): string {
+     return this.cfg.get<string>('codeIndex.excludeGlob')
+       ?? '**/{.git,node_modules,dist,build,out,target,coverage,.next,.ollama,.olliberty}/**';
+   }
+   get networkKillSwitchEnabled(): boolean {
+     return this.cfg.get<boolean>('privacy.networkKillSwitchEnabled') ?? true;
+   }
+   get allowedHosts(): string[] {
+     const configured = this.cfg.get<string[]>('privacy.allowedHosts') ?? DEFAULT_ALLOWED_HOSTS;
+     const normalized = configured
+       .map(host => host.trim().toLowerCase())
+       .filter(host => host.length > 0);
+
+     if (!normalized.length) {
+       return DEFAULT_ALLOWED_HOSTS;
+     }
+
+     return Array.from(new Set(normalized));
    }
    get timeoutMs(): number     { return 45_000; }   // hard-coded for simplicity
 
@@ -50,6 +76,32 @@
  
    reload(): void {
      this.cfg = vscode.workspace.getConfiguration('olliberty');
+   }
+
+   isHostAllowed(host: string): boolean {
+     const normalizedHost = host.trim().toLowerCase();
+     return this.allowedHosts.includes(normalizedHost);
+   }
+
+   assertUrlAllowed(urlLike: URL | string): void {
+     if (!this.networkKillSwitchEnabled) {
+       return;
+     }
+
+     const url = typeof urlLike === 'string' ? new URL(urlLike) : urlLike;
+     const host = url.hostname.trim().toLowerCase();
+     if (!this.isHostAllowed(host)) {
+       throw new Error(
+         `Network kill switch blocked host '${url.hostname}'. Allowed hosts: ${this.allowedHosts.join(', ')}.`
+       );
+     }
+   }
+
+   privacySummary(): string {
+     return [
+       `🛡️ **Network kill switch:** ${this.networkKillSwitchEnabled ? 'enabled' : 'disabled'}`,
+       `✅ **Allowed hosts:** ${this.allowedHosts.join(', ')}`
+     ].join('\n');
    }
  }
  

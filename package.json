@@ -2,7 +2,7 @@
   "name": "olliberty",
   "displayName": "Olliberty",
   "description": "Local, private AI coding assistant powered by Ollama — for VS Code, Cursor, and IntelliJ IDEA.",
-  "version": "0.0.1",
+  "version": "0.1.6",
   "publisher": "codesapienbe",
   "repository": {
     "type": "git",
@@ -167,6 +167,66 @@
           "minimum": 512,
           "maximum": 8192,
           "description": "Maximum context length for conversations"
+        },
+        "olliberty.autoApplyEdits": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically apply /edit proposals without manual approval"
+        },
+        "olliberty.codeIndex.autoIndexWorkspace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically maintain a local workspace code index for faster context retrieval"
+        },
+        "olliberty.codeIndex.maxFiles": {
+          "type": "number",
+          "default": 500,
+          "minimum": 50,
+          "maximum": 5000,
+          "description": "Maximum number of files to keep in the local code index"
+        },
+        "olliberty.codeIndex.maxFileSizeKb": {
+          "type": "number",
+          "default": 256,
+          "minimum": 16,
+          "maximum": 2048,
+          "description": "Maximum file size (KB) to include in the local code index"
+        },
+        "olliberty.codeIndex.previewLines": {
+          "type": "number",
+          "default": 35,
+          "minimum": 5,
+          "maximum": 200,
+          "description": "Number of leading lines stored per indexed file for retrieval context"
+        },
+        "olliberty.codeIndex.staleAfterMinutes": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "maximum": 1440,
+          "description": "Rebuild the local code index automatically when it becomes older than this age"
+        },
+        "olliberty.codeIndex.excludeGlob": {
+          "type": "string",
+          "default": "**/{.git,node_modules,dist,build,out,target,coverage,.next,.ollama,.olliberty}/**",
+          "description": "Glob pattern for paths excluded from the local code index"
+        },
+        "olliberty.privacy.networkKillSwitchEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Block outbound plugin network calls to hosts not listed in olliberty.privacy.allowedHosts"
+        },
+        "olliberty.privacy.allowedHosts": {
+          "type": "array",
+          "default": [
+            "localhost",
+            "127.0.0.1",
+            "::1"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Allowed hostnames for outbound plugin requests when the network kill switch is enabled"
         }
       }
     }
@@ -189,5 +249,8 @@
     "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.25.1",
     "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "sql.js": "^1.14.1"
   }
 }

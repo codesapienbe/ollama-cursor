@@ -8,13 +8,16 @@ import * as fs         from 'fs';
 import { OllamaClient } from '../client';
 import { OllamaInstaller } from './ollamaInstaller';
 import { ReasoningEffort, Settings } from '../settings';
+import { getCurrentWorkspaceFolder } from '../workspaceContext';
 
 export class AskAICommand {
   constructor(private readonly client: OllamaClient) {}
 
   async execute(): Promise<void> {
     const editor = vscode.window.activeTextEditor;
-    if (!editor) return;
+    if (!editor) {
+      return;
+    }
 
     // Check connection first
     try {
@@ -33,7 +36,9 @@ export class AskAICommand {
       ignoreFocusOut: true,
       validateInput: v => v.trim() ? null : 'Type a question',
     });
-    if (!question) return;
+    if (!question) {
+      return;
+    }
 
     /* Combine user question with current file to keep UX simple */
     const prompt = `${question}\n\n${editor.document.getText()}`;
@@ -41,7 +46,9 @@ export class AskAICommand {
 
     // Create output file
     const outputFile = await this._createOutputFile(question);
-    if (!outputFile) return;
+    if (!outputFile) {
+      return;
+    }
 
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Window, title: 'Ollama: Generating response...', cancellable: true },
@@ -62,7 +69,7 @@ export class AskAICommand {
   }
 
   private async _createOutputFile(question: string): Promise<string | null> {
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    const workspaceFolder = getCurrentWorkspaceFolder(vscode.window.activeTextEditor?.document.uri);
     if (!workspaceFolder) {
       vscode.window.showErrorMessage('No workspace folder open');
       return null;
@@ -126,6 +133,7 @@ ${question}
     });
 
     const url = new URL('/api/generate', settings.url);
+    settings.assertUrlAllowed(url);
     const transport = url.protocol === 'https:' ? require('https') : require('http');
     const options = {
       method: 'POST',
@@ -265,6 +273,10 @@ ${question}
     
     if (errorMsg.includes('HTTP 404')) {
       return 'The specified model is not available. Please check your Ollama model configuration.';
+    }
+
+    if (errorMsg.includes('Network kill switch blocked host')) {
+      return `${errorMsg} Update "olliberty.privacy.allowedHosts" if this host should be reachable.`;
     }
     
     if (errorMsg.includes('HTTP 500')) {

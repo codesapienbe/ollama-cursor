@@ -4,7 +4,7 @@ ENV ?= dev
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 INTELLIJ_DIR := $(ROOT_DIR)/intellij-plugin
 
-.PHONY: guard-env install build-vscode build-cursor build-intellij bundle run run-vscode run-cursor run-intellij
+.PHONY: guard-env install build-vscode build-cursor build-intellij bump-plugin-versions bundle run run-vscode run-cursor run-intellij
 
 guard-env:
 	@if [ "$(ENV)" != "dev" ]; then \
@@ -25,7 +25,10 @@ build-cursor: build-vscode
 build-intellij:
 	cd "$(INTELLIJ_DIR)" && ./gradlew buildPlugin
 
-bundle: build-intellij
+bump-plugin-versions:
+	node "$(ROOT_DIR)/scripts/bump-plugin-versions.mjs"
+
+bundle: bump-plugin-versions build-intellij
 	@echo "IntelliJ plugin ZIP: $(INTELLIJ_DIR)/build/distributions"
 
 run: guard-env run-vscode run-cursor run-intellij

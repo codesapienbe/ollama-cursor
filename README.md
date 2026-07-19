@@ -20,7 +20,14 @@ Ollama daemon.
 - **🤖 Modern Chat Interface**: Beautiful webview-based chat widget similar to GitHub Copilot
 - **📱 Multiple Access Points**: Available in both left sidebar and right panel (secondary sidebar)
 - **🔄 Context-Aware Responses**: Automatically includes current file and selection context
+- **📚 Local Code Index**: Maintains a local workspace index (`.olliberty/code-index.json`) for faster code-aware context
+- **🗂️ Session-based Chat History**: Stores full chat conversations and per-session notes in a local SQLite database with active-session and historical overviews
+- **🕸️ Graphify Context Import**: Ingests Graphify graph JSON from the opened project and uses structural graph context during chat prompts
 - **⚡ Inline Code Completion**: Real-time code suggestions as you type
+- **🛠️ Approval-First File Editing**: Use `/edit` to generate local file changes with in-IDE diff previews, then explicitly approve or reject
+- **🤝 Delegated Parallel Agents**: Use `/agents <goal>` to split analysis into parallel sub-agents on the same local model and synthesize one final answer
+- **🛡️ Network Kill Switch**: Restrict outbound plugin requests to an allowed host list for strict local privacy
+- **🔐 Secret Scrubbing + Token Vault**: Sensitive values in chat are auto-redacted to `******`; store tokens via `/token` and reference them as placeholders
 - **🎯 Smart Error Handling**: Comprehensive error handling with user-friendly messages
 - **💻 OS-Specific Installation**: Automatic detection and installation guidance for Windows, macOS, and Linux
 - **🔧 Highly Configurable**: Customizable model, temperature, and token settings
@@ -107,6 +114,7 @@ Olliberty automatically includes context from your current work:
 - **Selected Code**: When you have text selected, it's included in your query
 - **Current File**: For smaller files, the entire content is included for context
 - **File Information**: File name and language are always included
+- **Workspace Scope by Default**: Relative paths are interpreted from the active workspace root unless you override with `/path`
 
 #### Inline Code Completion
 - **Automatic Suggestions**: Get code completions as you type
@@ -140,7 +148,15 @@ Configure Olliberty through VS Code settings:
   "olliberty.systemPrompt": "",
   "olliberty.temperature": 0.2,
   "olliberty.maxTokens": 2048,
-  "olliberty.contextLength": 4096
+  "olliberty.contextLength": 4096,
+  "olliberty.autoApplyEdits": false,
+  "olliberty.codeIndex.autoIndexWorkspace": true,
+  "olliberty.codeIndex.maxFiles": 500,
+  "olliberty.codeIndex.maxFileSizeKb": 256,
+  "olliberty.codeIndex.previewLines": 35,
+  "olliberty.codeIndex.staleAfterMinutes": 10,
+  "olliberty.privacy.networkKillSwitchEnabled": true,
+  "olliberty.privacy.allowedHosts": ["localhost", "127.0.0.1", "::1"]
 }
 ```
 
@@ -153,6 +169,10 @@ Configure Olliberty through VS Code settings:
 - **`olliberty.temperature`**: Sampling temperature 0.0-1.0 (default: 0.2)
 - **`olliberty.maxTokens`**: Maximum tokens to generate (default: 2048)
 - **`olliberty.contextLength`**: Maximum context length (default: 4096)
+- **`olliberty.autoApplyEdits`**: If `true`, `/edit` proposals are written immediately without explicit approval (default: `false`)
+- **`olliberty.codeIndex.*`**: Controls local workspace indexing size, freshness, and exclusions
+- **`olliberty.privacy.networkKillSwitchEnabled`**: If enabled, outbound plugin calls are blocked unless host is allowed
+- **`olliberty.privacy.allowedHosts`**: Allowlist used by the kill switch (default: localhost-only)
 
 ### Chat slash commands
 
@@ -163,6 +183,32 @@ Inside the chat widget, you can control model selection without opening settings
 - `/model <name>` → switch default model (persists to your Olliberty settings)
 - `/effort` → show current reasoning effort
 - `/effort minimal|low|medium|high|max` → switch reasoning effort
+- `/privacy` → show kill switch + allowed hosts
+- `/token <key> <value>` → securely store a token (value is never echoed back)
+- `/token list` → list stored token keys
+- `/token remove <key>` → delete a stored token
+- `/index` → build/refresh local code index
+- `/index status` → inspect code index state
+- `/edit <instruction>` → generate local file edits and open in-IDE diff previews
+- `/approve` → apply pending `/edit` proposal
+- `/reject` → discard pending `/edit` proposal
+- `/agents <goal>` → run delegated parallel sub-agents and synthesize one final response
+- `/path` → show current chat path scope (defaults to active workspace root)
+- `/path <dir-or-file>` → scope chat context to a workspace-relative location
+- `/path reset` → clear override and return to workspace root scope
+- `/note <text>` → save a note in the active session
+- `/note` → list notes in the active session
+- `/notes` → show all notes for the active session in markdown
+- `/graphify import` → import Graphify JSON under the opened project (`<project>/graphify-out/*.json`) into local context DB
+- `/graphify status` → inspect imported Graphify context stats
+- `/sessions` → show the active and past session overview
+- `/session current` → show active session details
+- `/session new` → start a fresh session
+- `/session load <session-id>` → switch to a past session
+
+Secret handling rule:
+- Raw secrets pasted into chat are automatically scrubbed to `******`
+- If you intentionally want to inject a stored token into a prompt, use `::KEY::` placeholders after setting it with `/token KEY value`
 
 The IntelliJ IDEA plugin exposes the same options under **Settings/Preferences → Tools → Olliberty**.
 

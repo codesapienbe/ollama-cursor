@@ -38,6 +38,7 @@ export class OllamaClient {
     });
 
     const url = new URL('/api/generate', this.settings.url);
+    this.settings.assertUrlAllowed(url);
     const options = {
       method: 'POST',
       headers: {
@@ -49,7 +50,15 @@ export class OllamaClient {
     return new Promise<string>((resolve, reject) => {
       const req = this.transport(url).request(url, options, (res) => {
         if (res.statusCode !== 200) {
-          reject(new Error(`Ollama: HTTP ${res.statusCode} ${res.statusMessage}`));
+          let errorBody = '';
+          res.on('data', (chunk) => {
+            if (errorBody.length < 4000) {
+              errorBody += chunk.toString();
+            }
+          });
+          res.on('end', () => {
+            reject(new Error(this.formatHttpError(res.statusCode ?? 0, res.statusMessage ?? '', errorBody)));
+          });
           return;
         }
 
@@ -130,6 +139,7 @@ export class OllamaClient {
   async isHealthy(): Promise<boolean> {
     try {
       const url = new URL('/api/tags', this.settings.url);
+      this.settings.assertUrlAllowed(url);
       const options = {
         method: 'GET',
         timeout: 5000,
@@ -159,6 +169,7 @@ export class OllamaClient {
 
   async listModels(): Promise<string[]> {
     const url = new URL('/api/tags', this.settings.url);
+    this.settings.assertUrlAllowed(url);
     const options = {
       method: 'GET',
       timeout: 10_000,
@@ -167,7 +178,15 @@ export class OllamaClient {
     return new Promise<string[]>((resolve, reject) => {
       const req = this.transport(url).request(url, options, (res) => {
         if (res.statusCode !== 200) {
-          reject(new Error(`Ollama: HTTP ${res.statusCode} ${res.statusMessage}`));
+          let errorBody = '';
+          res.on('data', chunk => {
+            if (errorBody.length < 4000) {
+              errorBody += chunk.toString();
+            }
+          });
+          res.on('end', () => {
+            reject(new Error(this.formatHttpError(res.statusCode ?? 0, res.statusMessage ?? '', errorBody)));
+          });
           return;
         }
 
@@ -233,5 +252,30 @@ export class OllamaClient {
     };
 
     return `[Reasoning effort: ${this.settings.effort}] ${instructionsByEffort[this.settings.effort]}\n\n${prompt}`;
+  }
+
+  private formatHttpError(statusCode: number, statusMessage: string, responseBody: string): string {
+    const parsedMessage = this.extractOllamaError(responseBody);
+    if (parsedMessage) {
+      return `Ollama: HTTP ${statusCode} ${statusMessage} ${parsedMessage}`;
+    }
+    return `Ollama: HTTP ${statusCode} ${statusMessage}`;
+  }
+
+  private extractOllamaError(responseBody: string): string {
+    if (!responseBody.trim()) {
+      return '';
+    }
+
+    try {
+      const parsed = JSON.parse(responseBody) as { error?: unknown };
+      if (typeof parsed.error === 'string' && parsed.error.trim().length > 0) {
+        return parsed.error;
+      }
+    } catch {
+      // Ignore non-JSON responses and fall back to plain text.
+    }
+
+    return responseBody.trim().slice(0, 240);
   }
 }
