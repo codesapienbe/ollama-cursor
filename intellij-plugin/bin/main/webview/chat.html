@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Olliberty Chat</title>
+    <!--STYLE-->
+</head>
+<body>
+    <div id="chat-container">
+        <div id="toolbar">
+            <div id="connection-status"></div>
+            <button id="clear-button" class="icon-btn" title="Clear chat" aria-label="Clear chat">🗑</button>
+        </div>
+        <div id="messages-container"></div>
+        <div id="input-container">
+            <div id="install-button-container" style="display: none;">
+                <button id="install-button" class="install-btn">📥 Install Ollama</button>
+            </div>
+            <div class="input-row">
+                <textarea id="message-input" placeholder="Ask Ollama..." rows="1"></textarea>
+                <button id="send-button" aria-label="Send" title="Send">↑</button>
+            </div>
+        </div>
+    </div>
+    <!--SCRIPT-->
+</body>
+</html>
