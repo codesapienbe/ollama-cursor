@@ -44,4 +44,15 @@ tasks {
     buildSearchableOptions {
         enabled = false
     }
+
+    // The plugin has no custom settings UI, so searchable options are not built.
+    // Their consumers must be disabled too — otherwise they fail a clean build by
+    // requiring the output directory buildSearchableOptions would have produced.
+    prepareJarSearchableOptions {
+        enabled = false
+    }
+
+    jarSearchableOptions {
+        enabled = false
+    }
 }

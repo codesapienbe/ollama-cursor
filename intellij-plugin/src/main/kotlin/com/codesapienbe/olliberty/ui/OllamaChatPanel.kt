@@ -1,6 +1,6 @@
-package com.codesapienbe.ollama.ui
+package com.codesapienbe.olliberty.ui
 
-import com.codesapienbe.ollama.OllamaClient
+import com.codesapienbe.olliberty.OllamaClient
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileEditorManager

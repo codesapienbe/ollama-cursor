@@ -1,7 +1,7 @@
-package com.codesapienbe.ollama
+package com.codesapienbe.olliberty
 
-import com.codesapienbe.ollama.settings.OllamaSettingsState
-import com.codesapienbe.ollama.util.JsonLite
+import com.codesapienbe.olliberty.settings.OllamaSettingsState
+import com.codesapienbe.olliberty.util.JsonLite
 import java.net.HttpURLConnection
 import java.net.URI
 import java.nio.charset.StandardCharsets

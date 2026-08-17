@@ -1,4 +1,4 @@
-package com.codesapienbe.ollama.ui
+package com.codesapienbe.olliberty.ui
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer

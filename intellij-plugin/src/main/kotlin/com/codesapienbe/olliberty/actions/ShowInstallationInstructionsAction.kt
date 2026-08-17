@@ -1,6 +1,6 @@
-package com.codesapienbe.ollama.actions
+package com.codesapienbe.olliberty.actions
 
-import com.codesapienbe.ollama.OllamaInstaller
+import com.codesapienbe.olliberty.OllamaInstaller
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent

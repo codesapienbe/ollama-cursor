@@ -1,4 +1,4 @@
-package com.codesapienbe.ollama.settings
+package com.codesapienbe.olliberty.settings
 
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.RoamingType

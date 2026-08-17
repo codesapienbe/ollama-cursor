@@ -1,4 +1,4 @@
-package com.codesapienbe.ollama.actions
+package com.codesapienbe.olliberty.actions
 
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction

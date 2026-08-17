@@ -1,4 +1,4 @@
-package com.codesapienbe.ollama.settings
+package com.codesapienbe.olliberty.settings
 
 import com.intellij.openapi.options.Configurable
 import com.intellij.ui.components.JBScrollPane
