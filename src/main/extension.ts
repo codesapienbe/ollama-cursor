@@ -8,10 +8,12 @@
 import * as vscode from 'vscode';
 import { Settings }          from './settings';
 import { OllamaClient }      from './client';
+import { ActivityReporter } from './activity';
 import { CodeIndexStore } from './codeIndex';
 import { AgentEditService } from './agentEditService';
 import { ConversationStore } from './conversationStore';
 import { MultiAgentService } from './multiAgentService';
+import { PlanService } from './planService';
 import { TokenStore } from './tokenStore';
 import { InlineProvider }    from './ui/inlineProvider';
 import { AskAICommand }      from './ui/askAICommand';
@@ -22,9 +24,11 @@ import { RightPanelWidgetProvider } from './ui/rightPanelWidget';
 export class Container {
   readonly settings = new Settings();
   readonly client = new OllamaClient(this.settings);
+  readonly activity = new ActivityReporter();
   readonly codeIndex = new CodeIndexStore(this.settings);
-  readonly editService = new AgentEditService(this.client, this.codeIndex);
-  readonly multiAgentService = new MultiAgentService(this.client, this.codeIndex);
+  readonly editService = new AgentEditService(this.client, this.codeIndex, this.activity);
+  readonly multiAgentService = new MultiAgentService(this.client, this.codeIndex, this.activity);
+  readonly planService = new PlanService(this.client, this.codeIndex, this.activity);
   readonly conversationStore: ConversationStore;
   readonly tokenStore: TokenStore;
 
@@ -42,6 +46,7 @@ let rightPanelProvider: RightPanelWidgetProvider;
 export function activate(ctx: vscode.ExtensionContext): void {
   container = new Container(ctx);
   ctx.subscriptions.push(container.editService.registerPreviewContentProvider());
+  ctx.subscriptions.push(container.activity);
 
   /* Chat Widget Provider (Left Sidebar) */
   chatProvider = new ChatWidgetProvider(
@@ -52,7 +57,9 @@ export function activate(ctx: vscode.ExtensionContext): void {
     container.editService,
     container.multiAgentService,
     container.conversationStore,
-    container.tokenStore
+    container.tokenStore,
+    container.activity,
+    container.planService
   );
   ctx.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
@@ -70,7 +77,9 @@ export function activate(ctx: vscode.ExtensionContext): void {
     container.editService,
     container.multiAgentService,
     container.conversationStore,
-    container.tokenStore
+    container.tokenStore,
+    container.activity,
+    container.planService
   );
   ctx.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
@@ -211,6 +220,46 @@ export function activate(ctx: vscode.ExtensionContext): void {
       async () => {
         await chatProvider.clearChat();
         await rightPanelProvider.reloadActiveSession();
+      },
+    ),
+  );
+
+  /* Stop whatever Olliberty is currently doing */
+  ctx.subscriptions.push(
+    vscode.commands.registerCommand(
+      'olliberty.stopGeneration',
+      async () => {
+        const stopped = await Promise.all([
+          chatProvider.stopGeneration(),
+          rightPanelProvider.stopGeneration(),
+        ]);
+        if (!stopped.some(Boolean)) {
+          vscode.window.showInformationMessage('Olliberty: nothing is running right now.');
+        }
+      },
+    ),
+  );
+
+  /* Show the live activity log (output channel) */
+  ctx.subscriptions.push(
+    vscode.commands.registerCommand(
+      'olliberty.showActivityLog',
+      () => container.activity.showOutput(),
+    ),
+  );
+
+  /* Toggle plan-first mode */
+  ctx.subscriptions.push(
+    vscode.commands.registerCommand(
+      'olliberty.togglePlanMode',
+      async () => {
+        const nextMode = container.settings.planFirst ? 'auto' : 'plan';
+        await container.settings.setMode(nextMode);
+        vscode.window.showInformationMessage(
+          nextMode === 'plan'
+            ? 'Olliberty: plan-first mode on — plans must be accepted before anything runs.'
+            : 'Olliberty: auto mode on — requests run immediately.'
+        );
       },
     ),
   );

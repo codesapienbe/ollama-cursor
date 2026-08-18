@@ -1,10 +1,17 @@
 import { OllamaClient } from '../client';
-import { isReasoningEffort } from '../settings';
+import { DEFAULT_MODEL, isReasoningEffort } from '../settings';
 
 function usageText(): string {
   return [
     '🛠️ **Available slash commands**',
     '',
+    '- `/mode` — show the current execution mode',
+    '- `/mode plan|auto` — plan first and wait for acceptance, or run immediately',
+    '- `/plan <goal>` — draft a plan for review without running anything',
+    '- `/accept` — accept the pending plan and execute it',
+    '- `/discard` — discard the pending plan',
+    '- `/activity` — show what Olliberty did on the last run and open the log',
+    '- `/changes` — list every file written in this session',
     '- `/models` — list available local Ollama models',
     '- `/model` — show the current default model',
     '- `/model <name>` — switch the default model',
@@ -49,7 +56,7 @@ export async function runChatSlashCommand(input: string, client: OllamaClient): 
     case 'models': {
       const models = await client.listModels();
       if (!models.length) {
-        return '📦 No models found in Ollama. Pull one first, for example: `ollama pull gemma4:12b-it-qat`.';
+        return `📦 No models found in Ollama. Pull one first, for example: \`ollama pull ${DEFAULT_MODEL}\`.`;
       }
 
       const current = client.getCurrentModel();

@@ -14,7 +14,7 @@ class OllamaSettingsState : PersistentStateComponent<OllamaSettingsState.State> 
 
     data class State(
         var url: String = "http://localhost:11434",
-        var model: String = "gemma4:12b-it-qat",
+        var model: String = "qwen3.8:latest",
         var effort: String = "medium",
         var systemPrompt: String = "",
         var temperature: Double = 0.2,

@@ -1,11 +1,13 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { AgentEditService, EditProposal } from '../agentEditService';
-import { OllamaClient } from '../client';
+import { ActivityReporter, ActivityStep } from '../activity';
+import { AgentEditService, AppliedChange, EditProposal } from '../agentEditService';
+import { OllamaClient, isAbortedError } from '../client';
 import { CodeIndexStore } from '../codeIndex';
 import { ConversationStore } from '../conversationStore';
 import { DelegatedAgentProgress, MultiAgentService } from '../multiAgentService';
-import { Settings } from '../settings';
+import { Plan, PlanService } from '../planService';
+import { AgentMode, Settings, isAgentMode } from '../settings';
 import { scrubSensitiveContent } from '../security/secretScrubber';
 import { TokenStore } from '../tokenStore';
 import { getCurrentWorkspaceFolder } from '../workspaceContext';
@@ -25,6 +27,10 @@ type LocalSlashResult =
 
 type AgentRunView = Pick<DelegatedAgentProgress, 'id' | 'name' | 'status' | 'detail'>;
 
+/* Streaming fires per token; repainting the whole view that often is wasteful.
+   Coalescing on a trailing timer keeps the final state authoritative. */
+const WEBVIEW_UPDATE_INTERVAL_MS = 60;
+
 export class SharedChatViewProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _messages: ChatMessage[] = [];
@@ -33,9 +39,16 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
   private _installationShown = false;
   private _isGenerating = false;
   private _pendingEdit: EditProposal | null = null;
+  private _pendingPlan: Plan | null = null;
   private _activeAgentRuns: AgentRunView[] = [];
+  private _activitySteps: ActivityStep[] = [];
+  private _streamingContent = '';
+  private _isStreaming = false;
   private _pathOverride: string | null = null;
   private _sessionId = '';
+  private _lastWebviewPost = 0;
+  private _webviewTimer: ReturnType<typeof setTimeout> | undefined;
+  private _activeRun: AbortController | null = null;
   private readonly _conversationReady: Promise<void>;
 
   constructor(
@@ -46,8 +59,16 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
     private readonly _editService: AgentEditService,
     private readonly _multiAgentService: MultiAgentService,
     private readonly _conversationStore: ConversationStore,
-    private readonly _tokenStore: TokenStore
+    private readonly _tokenStore: TokenStore,
+    private readonly _activity: ActivityReporter,
+    private readonly _planService: PlanService
   ) {
+    this._disposables.push(
+      this._activity.onDidChange(steps => {
+        this._activitySteps = steps;
+        this._updateWebview();
+      })
+    );
     this._conversationReady = this._loadActiveConversation();
     void this._conversationReady.then(() => this._checkConnection());
     if (this._settings.autoIndexWorkspace) {
@@ -70,7 +91,7 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
 
     webviewView.webview.onDidReceiveMessage(
-      async (data: { type?: string; message?: string }) => {
+      async (data: { type?: string; message?: string; filePath?: string; mode?: string }) => {
         switch (data.type) {
           case 'sendMessage':
             if (typeof data.message === 'string') {
@@ -99,6 +120,38 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
           case 'previewPendingEdit':
             await this._addSystemMessage(await this._previewPendingEdit());
             break;
+          case 'approvePlan':
+            await this._approvePendingPlan();
+            break;
+          case 'rejectPlan':
+            this._pendingPlan = null;
+            this._updateWebview();
+            await this._addSystemMessage('🗑️ Plan discarded. Nothing was executed.');
+            break;
+          case 'openChangeDiff':
+            if (typeof data.filePath === 'string') {
+              await this._openAppliedChangeDiff(data.filePath);
+            }
+            break;
+          case 'showActivityLog':
+            this._activity.showOutput();
+            break;
+          case 'stopGeneration':
+            if (!(await this.stopGeneration()) && this._isGenerating) {
+              /* Filesystem work (indexing, Graphify import) has no
+                 interruption point — say so instead of ignoring the click. */
+              await this._addSystemMessage(
+                '⚠️ This step cannot be interrupted (local file work). It will finish shortly.'
+              );
+            }
+            break;
+          case 'setMode':
+            if (typeof data.mode === 'string' && isAgentMode(data.mode)) {
+              await this._settings.setMode(data.mode);
+              this._updateWebview();
+              await this._addSystemMessage(this._modeSummary());
+            }
+            break;
         }
       },
       null,
@@ -112,6 +165,34 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
     await this._clearChat();
   }
 
+  /** User interruption. Safe to call when nothing is running. */
+  public async stopGeneration(): Promise<boolean> {
+    if (!this._activeRun || this._activeRun.signal.aborted) {
+      return false;
+    }
+
+    this._activeRun.abort();
+    this._activity.cancelRunning();
+    this._activity.info('Stopped by user');
+    this._updateWebview();
+    return true;
+  }
+
+  /** Begins a cancellable unit of work and returns its signal. */
+  private _beginRun(): AbortSignal {
+    this._activeRun?.abort();
+    this._activeRun = new AbortController();
+    return this._activeRun.signal;
+  }
+
+  private _endRun(): void {
+    this._activeRun = null;
+  }
+
+  private _wasStopped(error: unknown, signal: AbortSignal): boolean {
+    return isAbortedError(error) || signal.aborted;
+  }
+
   public async reloadActiveSession(): Promise<void> {
     await this._conversationReady;
     await this._loadActiveConversation();
@@ -119,6 +200,10 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   public dispose(): void {
+    if (this._webviewTimer) {
+      clearTimeout(this._webviewTimer);
+      this._webviewTimer = undefined;
+    }
     this._disposables.forEach(disposable => disposable.dispose());
   }
 
@@ -173,7 +258,10 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
 
     const localSlashResult = await this._runLocalSlashCommand(trimmedMessage);
     if (localSlashResult.handled) {
-      await this._addSystemMessage(localSlashResult.response);
+      /* Commands that already wrote their own transcript entries return ''. */
+      if (localSlashResult.response) {
+        await this._addSystemMessage(localSlashResult.response);
+      }
       return;
     }
 
@@ -206,22 +294,192 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     await this._addMessage('user', scrubbedInput.text);
+    this._activity.reset();
+
+    if (this._settings.planFirst) {
+      await this._runPlanningTurn(tokenResolution.text);
+      return;
+    }
+
+    await this._runExecutionTurn(tokenResolution.text, knownTokenValues, null);
+  }
+
+  /** Plan mode: draft a plan and stop. Nothing runs until it is accepted. */
+  private async _runPlanningTurn(goal: string): Promise<void> {
+    const signal = this._beginRun();
     this._setGenerating(true);
-
     try {
-      const fullPrompt = await this._buildPrompt(tokenResolution.text);
-      const response = await this._client.generate({
-        prompt: fullPrompt,
-        stream: true
-      });
-
-      const scrubbedResponse = scrubSensitiveContent(response, knownTokenValues);
-      await this._addMessage('assistant', scrubbedResponse.text);
+      const plan = await this._planService.createPlan(goal, this._buildScopeContext(), signal);
+      this._pendingPlan = plan;
+      this._updateWebview();
+      await this._addSystemMessage(this._planService.formatPlanForChat(plan));
     } catch (error) {
-      await this._addMessage('assistant', this._formatErrorMessage(error));
+      this._pendingPlan = null;
+      await this._addSystemMessage(
+        this._wasStopped(error, signal)
+          ? '⏹ **Stopped by you.** No plan was created — send a new request to try again.'
+          : `❌ **Planning failed**: ${this._formatErrorMessage(error)}`
+      );
     } finally {
+      this._endRun();
       this._setGenerating(false);
     }
+  }
+
+  private async _approvePendingPlan(): Promise<void> {
+    if (this._isGenerating) {
+      await this._addSystemMessage('⏳ Olliberty is still working. Wait for the current run to finish.');
+      return;
+    }
+
+    const plan = this._pendingPlan;
+    if (!plan) {
+      await this._addSystemMessage('⚠️ No pending plan to accept. Send a request first.');
+      return;
+    }
+
+    this._pendingPlan = null;
+    this._updateWebview();
+    this._activity.info('Plan accepted', `${plan.steps.length} step(s)`);
+    await this._addSystemMessage(`▶️ **Plan accepted** — executing ${plan.steps.length || 1} step(s).`);
+
+    const knownTokenValues = await this._tokenStore.listTokenValues();
+
+    if (plan.touchesFiles) {
+      await this._executePlanAsEdits(plan);
+      return;
+    }
+
+    await this._runExecutionTurn(plan.goal, knownTokenValues, plan);
+  }
+
+  /** A plan that touches files runs through the diff/approve surface. */
+  private async _executePlanAsEdits(plan: Plan): Promise<void> {
+    const signal = this._beginRun();
+    this._setGenerating(true);
+    try {
+      const instruction = [this._planService.toExecutionBrief(plan), '', `Original request: ${plan.goal}`].join('\n');
+      const proposal = await this._editService.createProposal(
+        instruction,
+        vscode.window.activeTextEditor,
+        signal
+      );
+      this._pendingEdit = proposal;
+      this._updateWebview();
+
+      const proposalMessage = await this._editService.formatProposalForChat(proposal);
+      const diffPreviewMessage = await this._openProposalDiffs(proposal);
+
+      await this._addSystemMessage(
+        [
+          proposalMessage,
+          '',
+          diffPreviewMessage,
+          '',
+          'Nothing has been written yet. Use **Apply pending edit** (or `/approve`) to write these changes, or `/reject` to discard.'
+        ].join('\n')
+      );
+    } catch (error) {
+      await this._addSystemMessage(
+        this._wasStopped(error, signal)
+          ? '⏹ **Stopped by you.** No files were written.'
+          : `❌ **Failed to execute plan**: ${this._formatErrorMessage(error)}`
+      );
+    } finally {
+      this._endRun();
+      this._setGenerating(false);
+      this._updateWebview();
+    }
+  }
+
+  /** Streamed answer turn: tokens land in the transcript as they arrive. */
+  private async _runExecutionTurn(
+    request: string,
+    knownTokenValues: string[],
+    plan: Plan | null
+  ): Promise<void> {
+    const signal = this._beginRun();
+    this._setGenerating(true);
+    this._streamingContent = '';
+    this._isStreaming = true;
+
+    try {
+      const fullPrompt = await this._activity.run(
+        'Building prompt context',
+        async step => {
+          const prompt = await this._buildPrompt(request, plan);
+          step.update(`${prompt.length} chars sent to the model`);
+          return prompt;
+        }
+      );
+
+      const response = await this._activity.run(
+        'Generating response',
+        async step =>
+          this._client.generate({
+            prompt: fullPrompt,
+            stream: this._settings.streamResponses,
+            signal,
+            onToken: (_chunk, full) => {
+              this._streamingContent = full;
+              step.update(`${full.length} chars streamed`);
+              this._updateWebview();
+            }
+          }),
+        `model: ${this._client.getCurrentModel()}`
+      );
+
+      const scrubbedResponse = scrubSensitiveContent(response, knownTokenValues);
+      this._isStreaming = false;
+      this._streamingContent = '';
+      await this._addMessage('assistant', scrubbedResponse.text);
+    } catch (error) {
+      /* Keep whatever was streamed before the stop — it is often the
+         useful part, and discarding it would hide real work. */
+      const partial = this._streamingContent;
+      this._isStreaming = false;
+      this._streamingContent = '';
+
+      if (this._wasStopped(error, signal)) {
+        const scrubbedPartial = partial
+          ? scrubSensitiveContent(partial, knownTokenValues).text
+          : '';
+        await this._addMessage(
+          'assistant',
+          scrubbedPartial
+            ? `${scrubbedPartial}\n\n⏹ _Stopped by you — partial response above._`
+            : '⏹ **Stopped by you.** Nothing was generated.'
+        );
+      } else {
+        await this._addMessage('assistant', this._formatErrorMessage(error));
+      }
+    } finally {
+      this._endRun();
+      this._setGenerating(false);
+    }
+  }
+
+  private async _openAppliedChangeDiff(filePath: string): Promise<void> {
+    try {
+      await this._editService.showAppliedChangeDiff(filePath);
+    } catch (error) {
+      await this._addSystemMessage(`⚠️ Could not open diff for \`${filePath}\`: ${this._rawErrorMessage(error)}`);
+    }
+  }
+
+  private _modeSummary(): string {
+    return this._settings.planFirst
+      ? '📋 **Mode: plan** — every request produces a plan you accept before anything runs, and file writes still need a separate diff approval.'
+      : '⚡ **Mode: auto** — requests run immediately without a plan gate.';
+  }
+
+  private _buildScopeContext(): string {
+    const workspaceFolder = this._getCurrentWorkspaceFolder();
+    if (!workspaceFolder) {
+      return '';
+    }
+    const activeScopePath = this._getEffectiveScopePath(workspaceFolder.uri.fsPath);
+    return this._buildScopePromptHeader(workspaceFolder.uri.fsPath, activeScopePath);
   }
 
   private async _addSystemMessage(content: string): Promise<void> {
@@ -254,7 +512,7 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
     }));
   }
 
-  private async _buildPrompt(trimmedMessage: string): Promise<string> {
+  private async _buildPrompt(trimmedMessage: string, plan: Plan | null = null): Promise<string> {
     const editor = vscode.window.activeTextEditor;
     const workspaceFolder = this._getCurrentWorkspaceFolder(editor?.document.uri);
     const workspaceRootPath = workspaceFolder?.uri.fsPath ?? '';
@@ -313,6 +571,10 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
       contextPrompt = `${scopePrompt}\n\n${contextPrompt}`;
     }
 
+    if (plan) {
+      contextPrompt = `${this._planService.toExecutionBrief(plan)}\n\n${contextPrompt}`;
+    }
+
     const conversationHistory = this._messages
       .slice(-8)
       .filter(message => message.role !== 'system')
@@ -339,6 +601,46 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
           handled: true,
           response: this._settings.privacySummary()
         };
+      case 'mode': {
+        if (!argument) {
+          return { handled: true, response: this._modeSummary() };
+        }
+        const normalizedMode = argument.toLowerCase() as AgentMode;
+        if (!isAgentMode(normalizedMode)) {
+          return {
+            handled: true,
+            response: '⚠️ Usage: `/mode plan` (plan first, then accept) or `/mode auto` (run immediately).'
+          };
+        }
+        await this._settings.setMode(normalizedMode);
+        this._updateWebview();
+        return { handled: true, response: this._modeSummary() };
+      }
+      case 'plan': {
+        if (!argument) {
+          return {
+            handled: true,
+            response: this._pendingPlan
+              ? this._planService.formatPlanForChat(this._pendingPlan)
+              : '⚠️ Usage: `/plan <goal>` to draft a plan for review.'
+          };
+        }
+        this._activity.reset();
+        await this._runPlanningTurn(argument);
+        return { handled: true, response: '' };
+      }
+      case 'accept':
+        await this._approvePendingPlan();
+        return { handled: true, response: '' };
+      case 'discard':
+        this._pendingPlan = null;
+        this._updateWebview();
+        return { handled: true, response: '🗑️ Plan discarded. Nothing was executed.' };
+      case 'changes':
+        return { handled: true, response: this._changesMessage() };
+      case 'activity':
+        this._activity.showOutput();
+        return { handled: true, response: this._activityMessage() };
       case 'token':
         return this._handleTokenCommand(argument);
       case 'path':
@@ -375,23 +677,30 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
         }
         this._setGenerating(true);
         try {
-          const proposal = await this._editService.createProposal(argument, vscode.window.activeTextEditor);
+          this._activity.reset();
+          const editSignal = this._beginRun();
+          const proposal = await this._editService.createProposal(
+            argument,
+            vscode.window.activeTextEditor,
+            editSignal
+          );
           this._pendingEdit = proposal;
           if (this._settings.autoApplyEdits) {
-            const appliedFiles = await this._editService.applyProposal(proposal);
+            const appliedChanges = await this._editService.applyProposal(proposal);
             this._pendingEdit = null;
             return {
               handled: true,
-              response: await this._formatAppliedEditMessage(appliedFiles)
+              response: await this._formatAppliedEditMessage(appliedChanges)
             };
           }
 
+          const proposalMessage = await this._editService.formatProposalForChat(proposal);
           const diffPreviewMessage = await this._openProposalDiffs(proposal);
           this._updateWebview();
           return {
             handled: true,
             response: [
-              this._editService.formatProposalForChat(proposal),
+              proposalMessage,
               '',
               diffPreviewMessage,
               '',
@@ -401,9 +710,12 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
         } catch (error) {
           return {
             handled: true,
-            response: `❌ **Failed to prepare edit**: ${this._rawErrorMessage(error)}`
+            response: isAbortedError(error)
+              ? '⏹ **Stopped by you.** No edit was prepared and no files were written.'
+              : `❌ **Failed to prepare edit**: ${this._rawErrorMessage(error)}`
           };
         } finally {
+          this._endRun();
           this._setGenerating(false);
         }
       case 'approve':
@@ -425,6 +737,7 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
             response: '⚠️ Usage: `/agents <goal>`'
           };
         }
+        this._activity.reset();
         this._setGenerating(true);
         try {
           return {
@@ -432,6 +745,7 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
             response: await this._runDelegatedAgents(argument)
           };
         } finally {
+          this._endRun();
           this._setGenerating(false);
           this._activeAgentRuns = [];
           this._updateWebview();
@@ -763,11 +1077,15 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
       return '⚠️ No pending edit found. Run `/edit <instruction>` first.';
     }
 
+    if (this._isGenerating) {
+      return '⏳ Olliberty is still working. Wait for the current run to finish.';
+    }
+
     this._setGenerating(true);
     try {
-      const appliedFiles = await this._editService.applyProposal(proposal);
+      const appliedChanges = await this._editService.applyProposal(proposal);
       this._pendingEdit = null;
-      return await this._formatAppliedEditMessage(appliedFiles);
+      return await this._formatAppliedEditMessage(appliedChanges);
     } catch (error) {
       return `❌ **Failed to apply edit**: ${this._formatErrorMessage(error)}`;
     } finally {
@@ -789,22 +1107,53 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
     return this._openProposalDiffs(proposal);
   }
 
-  private async _formatAppliedEditMessage(files: string[]): Promise<string> {
-    const listedFiles = files.map(file => `- \`${file}\``).join('\n');
-    const lines = [
-      `✅ **Applied edits to ${files.length} file(s)**`,
-      '',
-      listedFiles
-    ];
+  private async _formatAppliedEditMessage(changes: AppliedChange[]): Promise<string> {
+    const lines = [this._editService.formatAppliedChangesForChat(changes)];
 
     try {
-      await this._editService.revealAppliedFiles(files);
+      await this._editService.revealAppliedFiles(changes.map(change => change.filePath));
       lines.push('', 'Opened each edited file in the IDE editor.');
     } catch (error) {
       lines.push('', `⚠️ Applied edits, but could not open files in the editor: ${this._rawErrorMessage(error)}`);
     }
 
     return lines.join('\n');
+  }
+
+  private _changesMessage(): string {
+    const changes = this._editService.listAppliedChanges();
+    if (!changes.length) {
+      return '📄 **No file changes applied yet in this session.**';
+    }
+
+    const totalAdditions = changes.reduce((sum, change) => sum + change.additions, 0);
+    const totalRemovals = changes.reduce((sum, change) => sum + change.removals, 0);
+    const lines = changes.map(change =>
+      `- \`${change.filePath}\` · +${change.additions} −${change.removals}`
+        + `${change.isNewFile ? ' (new file)' : ''} · ${new Date(change.appliedAt).toLocaleTimeString()}`
+    );
+
+    return [
+      `📄 **Applied changes this session (${changes.length})** · +${totalAdditions} −${totalRemovals}`,
+      '',
+      ...lines,
+      '',
+      'Click any file in the **Changes** panel to reopen its diff.'
+    ].join('\n');
+  }
+
+  private _activityMessage(): string {
+    if (!this._activitySteps.length) {
+      return '🔎 **No activity recorded yet.** Send a request and the steps will appear here and in the Olliberty output channel.';
+    }
+
+    const lines = this._activitySteps.map(step => {
+      const icon = step.status === 'done' ? '✔' : step.status === 'failed' ? '✖' : step.status === 'running' ? '▶' : '•';
+      const detail = step.detail ? ` — ${step.detail}` : '';
+      return `- ${icon} ${step.label}${detail}`;
+    });
+
+    return ['🔎 **Activity for the last run**', '', ...lines].join('\n');
   }
 
   private async _openProposalDiffs(proposal: EditProposal): Promise<string> {
@@ -817,16 +1166,25 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async _runDelegatedAgents(goal: string): Promise<string> {
+    const signal = this._beginRun();
     try {
-      const result = await this._multiAgentService.runDelegatedTask(goal, agents => {
-        this._activeAgentRuns = agents.map(agent => ({
-          id: agent.id,
-          name: agent.name,
-          status: agent.status,
-          detail: agent.detail
-        }));
-        this._updateWebview();
-      });
+      const result = await this._multiAgentService.runDelegatedTask(
+        goal,
+        agents => {
+          this._activeAgentRuns = agents.map(agent => ({
+            id: agent.id,
+            name: agent.name,
+            status: agent.status,
+            detail: agent.detail
+          }));
+          this._updateWebview();
+        },
+        signal
+      );
+
+      if (signal.aborted) {
+        return '⏹ **Stopped by you.** The delegated agent run was interrupted.';
+      }
 
       const agentLines = result.agents.map(agent => {
         const statusIcon = agent.status === 'completed' ? '✅' : agent.status === 'failed' ? '❌' : '⏳';
@@ -846,7 +1204,9 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
         result.synthesis
       ].join('\n');
     } catch (error) {
-      return `❌ **Delegated multi-agent run failed**: ${this._rawErrorMessage(error)}`;
+      return this._wasStopped(error, signal)
+        ? '⏹ **Stopped by you.** The delegated agent run was interrupted.'
+        : `❌ **Delegated multi-agent run failed**: ${this._rawErrorMessage(error)}`;
     }
   }
 
@@ -947,7 +1307,12 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
       timestamp: message.timestamp
     }));
     this._pendingEdit = null;
+    this._pendingPlan = null;
     this._activeAgentRuns = [];
+    this._streamingContent = '';
+    this._isStreaming = false;
+    this._editService.clearAppliedChanges();
+    this._activity.reset();
     this._updateWebview();
     void this._checkConnection();
   }
@@ -1049,12 +1414,60 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
+    const elapsed = Date.now() - this._lastWebviewPost;
+    if (elapsed >= WEBVIEW_UPDATE_INTERVAL_MS) {
+      this._postWebviewState();
+      return;
+    }
+
+    if (this._webviewTimer) {
+      return;
+    }
+
+    this._webviewTimer = setTimeout(() => {
+      this._webviewTimer = undefined;
+      this._postWebviewState();
+    }, WEBVIEW_UPDATE_INTERVAL_MS - elapsed);
+  }
+
+  private _postWebviewState(): void {
+    if (!this._view) {
+      return;
+    }
+
+    this._lastWebviewPost = Date.now();
     this._view.webview.postMessage({
       type: 'updateMessages',
       messages: this._messages,
       isConnected: this._isConnected,
       isGenerating: this._isGenerating,
       agentRuns: this._activeAgentRuns,
+      mode: this._settings.mode,
+      model: this._client.getCurrentModel(),
+      showActivity: this._settings.showActivityFeed,
+      activity: this._activitySteps.map(step => ({
+        id: step.id,
+        label: step.label,
+        detail: step.detail,
+        status: step.status,
+        elapsedMs: (step.endedAt ?? Date.now()) - step.startedAt
+      })),
+      streaming: this._isStreaming ? this._streamingContent : '',
+      changes: this._editService.listAppliedChanges().map(change => ({
+        filePath: change.filePath,
+        additions: change.additions,
+        removals: change.removals,
+        isNewFile: change.isNewFile,
+        appliedAt: change.appliedAt
+      })),
+      pendingPlan: this._pendingPlan
+        ? {
+            goal: this._pendingPlan.goal,
+            summary: this._pendingPlan.summary,
+            stepCount: this._pendingPlan.steps.length,
+            files: this._pendingPlan.files
+          }
+        : null,
       pendingEdit: this._pendingEdit
         ? {
             summary: this._pendingEdit.summary,
@@ -1082,16 +1495,44 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
 </head>
 <body>
     <div id="chat-container">
-        <div id="connection-status"></div>
+        <div id="status-bar">
+            <div id="connection-status"></div>
+            <div id="status-meta">
+                <span id="model-badge" title="Active Ollama model"></span>
+                <button id="mode-toggle" class="chip" title="Toggle plan-first mode"></button>
+                <button id="activity-log-button" class="chip" title="Open the Olliberty output channel">Log</button>
+            </div>
+        </div>
+        <div id="activity-container" style="display: none;">
+            <div class="section-title">
+                <span>Working</span>
+                <span id="activity-summary"></span>
+            </div>
+            <div id="activity-list"></div>
+        </div>
         <div id="agent-runs-container" style="display: none;">
             <div id="agent-runs-title">🤝 Agents running</div>
             <div id="agent-runs-list"></div>
+        </div>
+        <div id="changes-container" style="display: none;">
+            <div class="section-title">
+                <span>Changes</span>
+                <span id="changes-summary"></span>
+            </div>
+            <div id="changes-list"></div>
         </div>
         <div id="messages-container"></div>
         <div id="input-container">
             <div id="context-info"></div>
             <div id="install-button-container" style="display: none;">
                 <button id="install-button" class="install-btn">📥 Install Ollama</button>
+            </div>
+            <div id="pending-plan-container" style="display: none;">
+                <div id="pending-plan-summary"></div>
+                <div class="pending-edit-actions">
+                    <button id="approve-plan-button" class="pending-edit-btn approve">✅ Accept plan</button>
+                    <button id="reject-plan-button" class="pending-edit-btn reject">✖ Discard</button>
+                </div>
             </div>
             <div id="pending-edit-container" style="display: none;">
                 <div id="pending-edit-summary"></div>
@@ -1105,6 +1546,7 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
                 <textarea id="message-input" placeholder="Ask Ollama..." rows="1"></textarea>
                 <button id="send-button" aria-label="Send" title="Send">↑</button>
             </div>
+            <div id="stop-hint" style="display: none;">Press <kbd>Esc</kbd> to stop</div>
         </div>
     </div>
 
@@ -1114,17 +1556,38 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
         let isConnected = false;
         let isGenerating = false;
         let pendingEdit = null;
+        let pendingPlan = null;
         let agentRuns = [];
+        let activity = [];
+        let changes = [];
+        let streaming = '';
+        let mode = 'plan';
+        let model = '';
+        let showActivity = true;
 
         const messagesContainer = document.getElementById('messages-container');
         const messageInput = document.getElementById('message-input');
         const sendButton = document.getElementById('send-button');
         const contextInfo = document.getElementById('context-info');
         const connectionStatus = document.getElementById('connection-status');
+        const modelBadge = document.getElementById('model-badge');
+        const modeToggle = document.getElementById('mode-toggle');
+        const activityLogButton = document.getElementById('activity-log-button');
+        const activityContainer = document.getElementById('activity-container');
+        const activityList = document.getElementById('activity-list');
+        const activitySummary = document.getElementById('activity-summary');
+        const changesContainer = document.getElementById('changes-container');
+        const changesList = document.getElementById('changes-list');
+        const changesSummary = document.getElementById('changes-summary');
         const agentRunsContainer = document.getElementById('agent-runs-container');
         const agentRunsList = document.getElementById('agent-runs-list');
         const installButtonContainer = document.getElementById('install-button-container');
         const installButton = document.getElementById('install-button');
+        const pendingPlanContainer = document.getElementById('pending-plan-container');
+        const pendingPlanSummary = document.getElementById('pending-plan-summary');
+        const approvePlanButton = document.getElementById('approve-plan-button');
+        const rejectPlanButton = document.getElementById('reject-plan-button');
+        const stopHint = document.getElementById('stop-hint');
         const pendingEditContainer = document.getElementById('pending-edit-container');
         const pendingEditSummary = document.getElementById('pending-edit-summary');
         const previewEditButton = document.getElementById('preview-edit-button');
@@ -1137,12 +1600,89 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
             return div.innerHTML;
         }
 
+        function formatElapsed(ms) {
+            if (!ms || ms < 0) { return '0ms'; }
+            return ms < 1000 ? ms + 'ms' : (ms / 1000).toFixed(1) + 's';
+        }
+
+        function statusIconFor(status) {
+            if (status === 'done') { return '✔'; }
+            if (status === 'failed') { return '✖'; }
+            if (status === 'cancelled') { return '⏹'; }
+            if (status === 'running') { return '●'; }
+            return '·';
+        }
+
+        /* Renders a fenced diff the way a terminal review does:
+           additions green, removals red, hunk separators dimmed. */
+        function renderDiffBlock(body) {
+            const lines = body.split('\\n').map(line => {
+                let cls = 'diff-context';
+                if (line.startsWith('+')) { cls = 'diff-add'; }
+                else if (line.startsWith('-')) { cls = 'diff-remove'; }
+                else if (line.startsWith('@@')) { cls = 'diff-hunk'; }
+                return '<span class="diff-line ' + cls + '">' + escapeHtml(line) + '</span>';
+            });
+            return '<pre class="diff-block">' + lines.join('') + '</pre>';
+        }
+
+        function renderInline(text) {
+            return escapeHtml(text)
+                .replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>')
+                .replace(/\`([^\`]+)\`/g, '<code>$1</code>');
+        }
+
+        /* Prose outside code fences: tool-style lines get their own look.
+           Blank lines hugging a code fence would otherwise double up. */
+        function renderProse(text) {
+            const lines = text.split('\\n');
+            while (lines.length && lines[0].trim() === '') { lines.shift(); }
+            while (lines.length && lines[lines.length - 1].trim() === '') { lines.pop(); }
+
+            return lines.map(line => {
+                if (line.startsWith('● ')) {
+                    return '<div class="tool-line"><span class="tool-bullet">●</span> '
+                        + renderInline(line.slice(2)) + '</div>';
+                }
+                if (line.trim().startsWith('⎿ ')) {
+                    return '<div class="tool-detail">⎿ ' + renderInline(line.trim().slice(2)) + '</div>';
+                }
+                return '<div class="prose-line">' + renderInline(line) + '</div>';
+            }).join('');
+        }
+
+        function renderContent(text) {
+            const parts = String(text).split(/\`\`\`/);
+            let html = '';
+
+            parts.forEach((part, index) => {
+                if (index % 2 === 0) {
+                    html += renderProse(part);
+                    return;
+                }
+
+                const newlineIndex = part.indexOf('\\n');
+                const language = (newlineIndex === -1 ? part : part.slice(0, newlineIndex)).trim();
+                const body = newlineIndex === -1 ? '' : part.slice(newlineIndex + 1).replace(/\\n$/, '');
+
+                if (language.toLowerCase() === 'diff') {
+                    html += renderDiffBlock(body);
+                } else {
+                    html += '<pre><code>' + escapeHtml(body) + '</code></pre>';
+                }
+            });
+
+            return html;
+        }
+
         function updateConnectionStatus() {
             if (!isConnected) {
                 connectionStatus.innerHTML = '<div class="connection-error">⚠️ Ollama not connected</div>';
                 installButtonContainer.style.display = 'block';
             } else if (isGenerating) {
-                connectionStatus.innerHTML = '<div class="connection-success">⏳ Olliberty is thinking…</div>';
+                const running = activity.filter(step => step.status === 'running');
+                const label = running.length ? running[running.length - 1].label : 'Working';
+                connectionStatus.innerHTML = '<div class="connection-success">⏳ ' + escapeHtml(label) + '…</div>';
                 installButtonContainer.style.display = 'none';
             } else {
                 connectionStatus.innerHTML = '<div class="connection-success">✅ Ollama connected</div>';
@@ -1150,16 +1690,116 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
             }
         }
 
+        /* While generating, the send button becomes the stop control so
+           interrupting is always one click away. */
         function updateComposerState() {
-            const disabled = !isConnected || isGenerating;
-            messageInput.disabled = disabled;
-            sendButton.disabled = disabled;
-            sendButton.textContent = isGenerating ? '…' : '↑';
+            messageInput.disabled = !isConnected;
+            approvePlanButton.disabled = !isConnected || isGenerating;
+            rejectPlanButton.disabled = isGenerating;
+            approveEditButton.disabled = !isConnected || isGenerating;
+            previewEditButton.disabled = isGenerating;
+            rejectEditButton.disabled = isGenerating;
+
+            sendButton.disabled = !isConnected;
+            sendButton.textContent = isGenerating ? '■' : '↑';
+            sendButton.className = isGenerating ? 'stopping' : '';
+            sendButton.title = isGenerating ? 'Stop (Esc)' : 'Send';
+            sendButton.setAttribute('aria-label', isGenerating ? 'Stop' : 'Send');
+            stopHint.style.display = isGenerating ? 'block' : 'none';
+
             messageInput.placeholder = !isConnected
                 ? 'Install Ollama to continue...'
                 : isGenerating
-                    ? 'Generating response...'
+                    ? 'Working… press Esc to stop, or type your next message'
                     : 'Ask Ollama...';
+        }
+
+        function updateHeaderState() {
+            modelBadge.textContent = model ? '🤖 ' + model : '';
+            modeToggle.textContent = mode === 'plan' ? '📋 Plan first' : '⚡ Auto';
+            modeToggle.className = 'chip ' + (mode === 'plan' ? 'chip-active' : '');
+        }
+
+        function renderActivity() {
+            if (!showActivity || !Array.isArray(activity) || activity.length === 0) {
+                activityContainer.style.display = 'none';
+                activityList.innerHTML = '';
+                activitySummary.textContent = '';
+                return;
+            }
+
+            activityContainer.style.display = 'block';
+            const running = activity.filter(step => step.status === 'running').length;
+            const failed = activity.filter(step => step.status === 'failed').length;
+            activitySummary.textContent = running
+                ? running + ' running'
+                : failed
+                    ? failed + ' failed'
+                    : activity.length + ' steps';
+
+            activityList.innerHTML = activity.map(step => {
+                const detail = step.detail
+                    ? '<div class="activity-detail">⎿ ' + escapeHtml(step.detail) + '</div>'
+                    : '';
+                const elapsed = step.status === 'running'
+                    ? ''
+                    : '<span class="activity-elapsed">' + formatElapsed(step.elapsedMs) + '</span>';
+                return [
+                    '<div class="activity-item activity-' + step.status + '">',
+                    '<div class="activity-head">',
+                    '<span class="activity-icon">' + statusIconFor(step.status) + '</span>',
+                    '<span class="activity-label">' + escapeHtml(step.label) + '</span>',
+                    elapsed,
+                    '</div>',
+                    detail,
+                    '</div>'
+                ].join('');
+            }).join('');
+        }
+
+        function renderChanges() {
+            if (!Array.isArray(changes) || changes.length === 0) {
+                changesContainer.style.display = 'none';
+                changesList.innerHTML = '';
+                changesSummary.textContent = '';
+                return;
+            }
+
+            changesContainer.style.display = 'block';
+            const additions = changes.reduce((sum, change) => sum + change.additions, 0);
+            const removals = changes.reduce((sum, change) => sum + change.removals, 0);
+            changesSummary.textContent = changes.length + ' files · +' + additions + ' −' + removals;
+
+            changesList.innerHTML = changes.map(change => [
+                '<button class="change-item" data-file="' + escapeHtml(change.filePath) + '" title="Open diff">',
+                '<span class="change-path">' + escapeHtml(change.filePath) + '</span>',
+                '<span class="change-stats">',
+                '<span class="diff-add-count">+' + change.additions + '</span> ',
+                '<span class="diff-remove-count">−' + change.removals + '</span>',
+                change.isNewFile ? ' <span class="change-new">new</span>' : '',
+                '</span>',
+                '</button>'
+            ].join('')).join('');
+
+            Array.prototype.forEach.call(changesList.querySelectorAll('.change-item'), button => {
+                button.addEventListener('click', () => {
+                    vscode.postMessage({ type: 'openChangeDiff', filePath: button.getAttribute('data-file') });
+                });
+            });
+        }
+
+        function updatePendingPlanState() {
+            if (!pendingPlan) {
+                pendingPlanContainer.style.display = 'none';
+                pendingPlanSummary.textContent = '';
+                return;
+            }
+
+            pendingPlanContainer.style.display = 'block';
+            const files = Array.isArray(pendingPlan.files) ? pendingPlan.files : [];
+            const fileLabel = files.length ? files.length + ' file(s)' : 'no file changes';
+            pendingPlanSummary.textContent =
+                '📋 Plan ready · ' + pendingPlan.stepCount + ' step(s) · ' + fileLabel;
         }
 
         function updatePendingEditState() {
@@ -1205,10 +1845,33 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
             }).join('');
         }
 
+        function appendMessageElement(role, content, timestamp, isPartial) {
+            const messageElement = document.createElement('div');
+            messageElement.className = 'message ' + role + (isPartial ? ' streaming' : '');
+
+            const avatarIcon = role === 'assistant' ? '🤖' : role === 'user' ? '🧑' : 'ℹ️';
+            const header = document.createElement('div');
+            header.className = 'message-header';
+            header.innerHTML = [
+                '<span class="avatar">' + avatarIcon + '</span>',
+                '<span class="role">' + role + '</span>',
+                '<span class="timestamp">' + new Date(timestamp).toLocaleTimeString() + '</span>',
+                isPartial ? '<span class="streaming-badge">streaming…</span>' : ''
+            ].join('');
+
+            const body = document.createElement('div');
+            body.className = 'message-content';
+            body.innerHTML = renderContent(content) + (isPartial ? '<span class="cursor">▋</span>' : '');
+
+            messageElement.appendChild(header);
+            messageElement.appendChild(body);
+            messagesContainer.appendChild(messageElement);
+        }
+
         function renderMessages() {
             messagesContainer.innerHTML = '';
 
-            if (messages.length === 0) {
+            if (messages.length === 0 && !streaming) {
                 const emptyState = document.createElement('div');
                 emptyState.className = 'empty-state';
                 emptyState.innerHTML = \`
@@ -1216,7 +1879,8 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
                     <div class="empty-state-title">Olliberty</div>
                     <div class="empty-state-description">
                         Ask me anything about your code.<br>
-                        Use /edit for local diffs and /agents for delegated parallel analysis.
+                        Plan mode drafts a plan you accept before anything runs.<br>
+                        /edit for local diffs, /agents for parallel analysis, /changes for what was written.
                     </div>
                 \`;
                 messagesContainer.appendChild(emptyState);
@@ -1224,30 +1888,12 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
             }
 
             messages.forEach(message => {
-                const messageElement = document.createElement('div');
-                messageElement.className = \`message \${message.role}\`;
-
-                let content = escapeHtml(message.content);
-                if (message.role === 'system') {
-                    content = content.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
-                } else {
-                    content = content
-                        .replace(/\`\`\`([\\s\\S]*?)\`\`\`/g, '<pre><code>$1</code></pre>')
-                        .replace(/\`([^\`]+)\`/g, '<code>$1</code>');
-                }
-
-                const avatarIcon = message.role === 'assistant' ? '🤖' : message.role === 'user' ? '🧑' : 'ℹ️';
-                messageElement.innerHTML = \`
-                    <div class="message-header">
-                        <span class="avatar">\${avatarIcon}</span>
-                        <span class="role">\${message.role}</span>
-                        <span class="timestamp">\${new Date(message.timestamp).toLocaleTimeString()}</span>
-                    </div>
-                    <div class="message-content">\${content}</div>
-                \`;
-
-                messagesContainer.appendChild(messageElement);
+                appendMessageElement(message.role, message.content, message.timestamp, false);
             });
+
+            if (streaming) {
+                appendMessageElement('assistant', streaming, Date.now(), true);
+            }
 
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
@@ -1267,7 +1913,28 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
             messageInput.style.height = 'auto';
         }
 
-        sendButton.addEventListener('click', sendMessage);
+        function stopGeneration() {
+            if (!isGenerating) {
+                return;
+            }
+            vscode.postMessage({ type: 'stopGeneration' });
+        }
+
+        sendButton.addEventListener('click', () => {
+            if (isGenerating) {
+                stopGeneration();
+            } else {
+                sendMessage();
+            }
+        });
+
+        /* Esc interrupts from anywhere in the panel, matching the CLI. */
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && isGenerating) {
+                event.preventDefault();
+                stopGeneration();
+            }
+        });
 
         installButton.addEventListener('click', () => {
             vscode.postMessage({ type: 'installOllama' });
@@ -1283,6 +1950,22 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
 
         rejectEditButton.addEventListener('click', () => {
             vscode.postMessage({ type: 'rejectPendingEdit' });
+        });
+
+        approvePlanButton.addEventListener('click', () => {
+            vscode.postMessage({ type: 'approvePlan' });
+        });
+
+        rejectPlanButton.addEventListener('click', () => {
+            vscode.postMessage({ type: 'rejectPlan' });
+        });
+
+        activityLogButton.addEventListener('click', () => {
+            vscode.postMessage({ type: 'showActivityLog' });
+        });
+
+        modeToggle.addEventListener('click', () => {
+            vscode.postMessage({ type: 'setMode', mode: mode === 'plan' ? 'auto' : 'plan' });
         });
 
         messageInput.addEventListener('keydown', (event) => {
@@ -1305,11 +1988,22 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
                     isConnected = message.isConnected;
                     isGenerating = Boolean(message.isGenerating);
                     agentRuns = Array.isArray(message.agentRuns) ? message.agentRuns : [];
+                    activity = Array.isArray(message.activity) ? message.activity : [];
+                    changes = Array.isArray(message.changes) ? message.changes : [];
+                    streaming = typeof message.streaming === 'string' ? message.streaming : '';
+                    mode = message.mode || 'plan';
+                    model = message.model || '';
+                    showActivity = message.showActivity !== false;
                     pendingEdit = message.pendingEdit ?? null;
+                    pendingPlan = message.pendingPlan ?? null;
                     renderMessages();
+                    renderActivity();
+                    renderChanges();
                     renderAgentRuns();
+                    updateHeaderState();
                     updateConnectionStatus();
                     updateComposerState();
+                    updatePendingPlanState();
                     updatePendingEditState();
                     break;
                 case 'context': {

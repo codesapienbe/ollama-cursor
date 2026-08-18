@@ -572,3 +572,317 @@ body::before {
     font-size: 0.85em;
   }
 }
+
+/* ── Status bar: model, mode, log ──────────────────────────────── */
+
+#status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-right: 12px;
+  flex-wrap: wrap;
+}
+
+#status-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 0.74em;
+}
+
+#model-badge {
+  opacity: 0.75;
+  white-space: nowrap;
+  max-width: 40vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chip {
+  font-family: inherit;
+  font-size: 1em;
+  color: var(--vscode-chat-foreground);
+  background: var(--glass-surface);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--glass-radius-pill);
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: background 0.2s var(--ease-spring), transform 0.2s var(--ease-spring);
+}
+
+.chip:hover { background: var(--glass-surface-strong); transform: translateY(-1px); }
+
+.chip-active {
+  border-color: color-mix(in srgb, var(--accent-a) 55%, transparent);
+  color: var(--accent-a);
+}
+
+/* ── Live activity feed ────────────────────────────────────────── */
+
+#activity-container,
+#changes-container {
+  margin: 8px 12px 0;
+  padding: 10px 12px;
+  border-radius: var(--glass-radius-md);
+  background: var(--glass-surface);
+  backdrop-filter: blur(var(--glass-blur)) saturate(170%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(170%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  max-height: 34vh;
+  overflow-y: auto;
+}
+
+.section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.78em;
+  font-weight: 600;
+  opacity: 0.86;
+  margin-bottom: 8px;
+}
+
+.section-title span:last-child {
+  font-weight: 400;
+  opacity: 0.6;
+}
+
+#activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8em;
+}
+
+.activity-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.activity-icon { width: 1em; flex: 0 0 auto; }
+
+.activity-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-elapsed {
+  flex: 0 0 auto;
+  opacity: 0.5;
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-detail {
+  margin-left: 1.7em;
+  opacity: 0.62;
+  font-size: 0.94em;
+  word-break: break-word;
+}
+
+.activity-running .activity-icon {
+  color: var(--accent-a);
+  animation: activity-pulse 1.1s ease-in-out infinite;
+}
+
+.activity-done .activity-icon { color: var(--vscode-chat-success); }
+.activity-failed .activity-icon { color: var(--vscode-chat-error); }
+.activity-failed .activity-label { color: var(--vscode-chat-error); }
+.activity-info .activity-icon { opacity: 0.55; }
+
+@keyframes activity-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-running .activity-icon { animation: none; }
+}
+
+/* ── Applied changes list ──────────────────────────────────────── */
+
+#changes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.change-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  font-family: inherit;
+  font-size: 0.8em;
+  text-align: left;
+  color: var(--vscode-chat-foreground);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 4px 7px;
+  cursor: pointer;
+}
+
+.change-item:hover {
+  background: var(--glass-surface-strong);
+  border-color: var(--glass-border);
+}
+
+.change-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.change-stats {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.change-new {
+  opacity: 0.6;
+  font-style: italic;
+}
+
+/* ── Inline diffs in the transcript ────────────────────────────── */
+
+.diff-block {
+  display: flex;
+  flex-direction: column;
+  margin: 6px 0;
+  padding: 8px 0;
+  border-radius: 10px;
+  background: var(--vscode-chat-code-bg);
+  border: 1px solid var(--glass-border);
+  overflow-x: auto;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.86em;
+  line-height: 1.45;
+}
+
+.diff-line {
+  display: block;
+  padding: 0 10px;
+  white-space: pre;
+}
+
+.diff-add {
+  background: color-mix(in srgb, #2ea043 20%, transparent);
+  color: color-mix(in srgb, #3fb950 85%, var(--vscode-chat-foreground));
+}
+
+.diff-remove {
+  background: color-mix(in srgb, #f85149 18%, transparent);
+  color: color-mix(in srgb, #f85149 85%, var(--vscode-chat-foreground));
+}
+
+.diff-hunk { opacity: 0.45; }
+.diff-context { opacity: 0.75; }
+
+.diff-add-count { color: #3fb950; }
+.diff-remove-count { color: #f85149; }
+
+/* ── Claude-style tool lines in message bodies ─────────────────── */
+
+.tool-line {
+  font-weight: 600;
+  margin-top: 6px;
+}
+
+.tool-detail {
+  margin-left: 1.1em;
+  opacity: 0.65;
+  font-size: 0.94em;
+}
+
+.prose-line:empty { height: 0.55em; }
+
+/* ── Streaming assistant message ───────────────────────────────── */
+
+.message.streaming {
+  border-color: color-mix(in srgb, var(--accent-a) 40%, transparent);
+}
+
+.streaming-badge {
+  margin-left: auto;
+  font-size: 0.9em;
+  opacity: 0.6;
+  color: var(--accent-a);
+}
+
+.cursor {
+  display: inline-block;
+  animation: cursor-blink 1s steps(2, start) infinite;
+  color: var(--accent-a);
+}
+
+@keyframes cursor-blink {
+  to { visibility: hidden; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cursor { animation: none; }
+}
+
+/* ── Pending plan approval card ────────────────────────────────── */
+
+#pending-plan-container {
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border-radius: var(--glass-radius-md);
+  background: var(--glass-surface-strong);
+  border: 1px solid color-mix(in srgb, var(--accent-a) 40%, transparent);
+}
+
+#pending-plan-summary {
+  font-size: 0.82em;
+  margin-bottom: 8px;
+}
+
+.tool-bullet {
+  color: var(--accent-a);
+  font-weight: 700;
+}
+
+.pending-edit-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ── Stop control ──────────────────────────────────────────────── */
+
+#send-button.stopping {
+  background: var(--vscode-chat-error);
+  background-image: none;
+}
+
+#send-button.stopping:hover:not(:disabled) {
+  filter: brightness(1.15);
+}
+
+#stop-hint {
+  margin-top: 6px;
+  font-size: 0.72em;
+  opacity: 0.6;
+  text-align: center;
+}
+
+#stop-hint kbd {
+  font-family: var(--vscode-editor-font-family, monospace);
+  border: 1px solid var(--glass-border);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.activity-cancelled .activity-icon { color: var(--vscode-chat-warning); }
+.activity-cancelled .activity-label { opacity: 0.7; text-decoration: line-through; }

@@ -1,3 +1,4 @@
+import { ActivityReporter } from './activity';
 import { OllamaClient } from './client';
 import { CodeIndexStore } from './codeIndex';
 
@@ -62,12 +63,14 @@ const DEFAULT_BLUEPRINTS: AgentBlueprint[] = [
 export class MultiAgentService {
   constructor(
     private readonly client: OllamaClient,
-    private readonly codeIndex: CodeIndexStore
+    private readonly codeIndex: CodeIndexStore,
+    private readonly activity: ActivityReporter
   ) {}
 
   async runDelegatedTask(
     instruction: string,
-    onProgress: (agents: DelegatedAgentProgress[]) => void
+    onProgress: (agents: DelegatedAgentProgress[]) => void,
+    signal?: AbortSignal
   ): Promise<DelegatedRunResult> {
     const sharedContext = await this.buildSharedContext(instruction);
     const progress = DEFAULT_BLUEPRINTS.map<DelegatedAgentProgress>(blueprint => ({
@@ -82,13 +85,17 @@ export class MultiAgentService {
       DEFAULT_BLUEPRINTS.map(async blueprint => {
         this.updateAgentStatus(progress, blueprint.id, 'running');
         onProgress([...progress]);
+        const stepId = this.activity.begin(`Agent · ${blueprint.name}`, blueprint.goal);
 
         try {
           const response = await this.client.generate({
             prompt: this.buildAgentPrompt(blueprint, instruction, sharedContext),
-            stream: false
+            stream: true,
+            signal,
+            onToken: (_chunk, full) => this.activity.update(stepId, `${full.length} chars`)
           });
           const detail = this.toStatusDetail(response);
+          this.activity.succeed(stepId, detail);
           this.updateAgentStatus(progress, blueprint.id, 'completed', detail);
           onProgress([...progress]);
           return {
@@ -101,6 +108,7 @@ export class MultiAgentService {
           };
         } catch (error) {
           const detail = this.toStatusDetail(error instanceof Error ? error.message : String(error));
+          this.activity.fail(stepId, detail);
           this.updateAgentStatus(progress, blueprint.id, 'failed', detail);
           onProgress([...progress]);
           return {
@@ -115,10 +123,21 @@ export class MultiAgentService {
       })
     );
 
-    const synthesis = await this.client.generate({
-      prompt: this.buildSynthesisPrompt(instruction, settled, sharedContext),
-      stream: false
-    });
+    /* Skip synthesis entirely when the user stopped mid-fan-out. */
+    if (signal?.aborted) {
+      return { synthesis: '', agents: progress };
+    }
+
+    const synthesis = await this.activity.run(
+      'Synthesizing agent results',
+      async step =>
+        this.client.generate({
+          prompt: this.buildSynthesisPrompt(instruction, settled, sharedContext),
+          stream: true,
+          signal,
+          onToken: (_chunk, full) => step.update(`${full.length} chars`)
+        })
+    );
 
     return {
       synthesis: synthesis.trim(),
@@ -127,7 +146,14 @@ export class MultiAgentService {
   }
 
   private async buildSharedContext(instruction: string): Promise<string> {
-    const indexedContext = await this.codeIndex.buildPromptContext(instruction, 8);
+    const indexedContext = await this.activity.run(
+      'Building shared agent context',
+      async step => {
+        const context = await this.codeIndex.buildPromptContext(instruction, 8);
+        step.update(context ? `${context.length} chars` : 'no indexed context');
+        return context;
+      }
+    );
     if (!indexedContext) {
       return 'Indexed workspace context: unavailable.';
     }

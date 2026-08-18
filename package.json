@@ -48,6 +48,21 @@
         "command": "olliberty.showInstallationInstructions",
         "title": "Olliberty: Show Installation Instructions",
         "icon": "$(info)"
+      },
+      {
+        "command": "olliberty.stopGeneration",
+        "title": "Olliberty: Stop",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "olliberty.showActivityLog",
+        "title": "Olliberty: Show Activity Log",
+        "icon": "$(output)"
+      },
+      {
+        "command": "olliberty.togglePlanMode",
+        "title": "Olliberty: Toggle Plan-First Mode",
+        "icon": "$(checklist)"
       }
     ],
     "keybindings": [
@@ -104,9 +119,24 @@
     "menus": {
       "view/title": [
         {
+          "command": "olliberty.stopGeneration",
+          "when": "view == olliberty.chatView || view == olliberty.rightPanelView",
+          "group": "navigation@0"
+        },
+        {
+          "command": "olliberty.showActivityLog",
+          "when": "view == olliberty.chatView || view == olliberty.rightPanelView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "olliberty.togglePlanMode",
+          "when": "view == olliberty.chatView || view == olliberty.rightPanelView",
+          "group": "navigation@2"
+        },
+        {
           "command": "olliberty.clearChat",
           "when": "view == olliberty.chatView || view == olliberty.rightPanelView",
-          "group": "navigation"
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
@@ -127,8 +157,31 @@
         },
         "olliberty.model": {
           "type": "string",
-          "default": "gemma4:12b-it-qat",
+          "default": "qwen3.8:latest",
           "description": "Model name sent to the Ollama daemon"
+        },
+        "olliberty.mode": {
+          "type": "string",
+          "enum": [
+            "plan",
+            "auto"
+          ],
+          "enumDescriptions": [
+            "Plan first: every request produces a reviewable plan that you accept before anything runs",
+            "Auto: requests run immediately without a plan gate"
+          ],
+          "default": "plan",
+          "description": "Execution mode. In plan mode nothing runs and no file is written until you accept the plan."
+        },
+        "olliberty.showActivityFeed": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the live activity feed of every step Olliberty takes while it works"
+        },
+        "olliberty.streamResponses": {
+          "type": "boolean",
+          "default": true,
+          "description": "Render model output token-by-token in the chat instead of only when it finishes"
         },
         "olliberty.effort": {
           "type": "string",
@@ -171,7 +224,7 @@
         "olliberty.autoApplyEdits": {
           "type": "boolean",
           "default": false,
-          "description": "Automatically apply /edit proposals without manual approval"
+          "description": "Automatically apply /edit proposals without manual approval. Ignored while olliberty.mode is \"plan\" — plan mode always requires an explicit diff approval."
         },
         "olliberty.codeIndex.autoIndexWorkspace": {
           "type": "boolean",

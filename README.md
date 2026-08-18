@@ -19,6 +19,11 @@ Ollama daemon.
 
 - **🤖 Modern Chat Interface**: Beautiful webview-based chat widget similar to GitHub Copilot
 - **📱 Multiple Access Points**: Available in both left sidebar and right panel (secondary sidebar)
+- **📋 Plan-First by Default**: Every request is turned into a reviewable plan; nothing runs and no file is written until you accept it
+- **⏹ Interruptible**: Stop any run mid-flight with `Esc` or the stop button — partial output is kept, and the socket to Ollama is closed so generation actually stops
+- **🔎 Live Activity Feed**: A running list of every step — indexing, context retrieval, model calls, file writes — with durations, mirrored to the **Olliberty** output channel
+- **⌨️ Streaming Output**: Model output appears token-by-token in the chat instead of after a silent wait
+- **📄 Visible Changes**: Every proposed and applied edit is shown as an inline coloured diff plus a per-session **Changes** panel you can click to reopen any diff
 - **🔄 Context-Aware Responses**: Automatically includes current file and selection context
 - **📚 Local Code Index**: Maintains a local workspace index (`.olliberty/code-index.json`) for faster code-aware context
 - **🗂️ Session-based Chat History**: Stores full chat conversations and per-session notes in a local SQLite database with active-session and historical overviews
@@ -87,7 +92,7 @@ Olliberty automatically detects when Ollama is not available and provides tailor
 ### Model Setup
 After installing Ollama, pull your desired model:
 ```bash
-ollama pull gemma4:12b-it-qat
+ollama pull qwen3.8:latest
 # or
 ollama pull llama2
 ollama pull deepseek-coder
@@ -126,6 +131,49 @@ Olliberty automatically includes context from your current work:
 - **Visual Indicators**: Clear indication when Ollama is connected or disconnected
 - **Installation Prompts**: Automatic installation guidance when Ollama is not available
 
+#### Plan-First Mode (default)
+
+Olliberty ships in `plan` mode. A normal chat request is answered in two phases:
+
+1. **Plan** — Olliberty drafts a numbered plan: what it will do, which files it expects to touch, and the risks. Nothing has run at this point.
+2. **Accept** — press **✅ Accept plan** (or send `/accept`) and it executes. Discard it with **✖ Discard** (or `/discard`).
+
+If the accepted plan touches files, execution produces an edit proposal with inline diffs and in-IDE diff previews — those still need a *separate* **Apply pending edit** approval before anything is written. `olliberty.autoApplyEdits` is deliberately ignored while in plan mode.
+
+Switch to immediate execution with the **⚡ Auto** chip in the chat header, `/mode auto`, or the *Olliberty: Toggle Plan-First Mode* command.
+
+#### Seeing What Olliberty Is Doing
+
+While a request runs, the **Working** panel above the transcript lists each step live:
+
+```
+● Building plan context        120ms
+  ⎿ 8,412 chars of indexed context
+● Drafting plan                 4.2s
+  ⎿ 1,180 chars drafted
+● Writing src/main/client.ts     18ms
+  ⎿ +12 -3
+```
+
+Running steps pulse, finished steps show their duration, failed steps turn red with the error. The header shows the active model and mode. The same feed is written to the **Olliberty** output channel — open it with the **Log** chip, `/activity`, or *Olliberty: Show Activity Log* — so you have a durable record after the panel clears.
+
+#### Stopping a Run
+
+While anything is running, the send button turns into a red **■** stop control and the composer shows *Press `Esc` to stop*. Either one interrupts immediately:
+
+- The HTTP socket to Ollama is destroyed, so the model actually stops generating rather than continuing in the background.
+- **Partial output is kept.** Whatever streamed before you stopped stays in the transcript, marked *Stopped by you — partial response above*.
+- Interrupted steps show as `⏹` in the activity feed instead of silently vanishing.
+- Nothing is written to disk by a stopped run. Stopping during planning leaves no plan; stopping during edit generation leaves no proposal.
+
+You can also stop from the view title bar or via *Olliberty: Stop* in the Command Palette. Note that local filesystem work (`/index`, `/graphify import`) has no interruption point — Olliberty tells you so rather than ignoring the click.
+
+#### Seeing the Changes
+
+- Proposed edits are printed in the transcript as coloured diffs with per-file `+`/`−` counts, alongside the in-IDE diff previews.
+- Applied edits are printed the same way, so the transcript records exactly what was written.
+- The **Changes** panel lists every file written in the session; click any entry to reopen its before/after diff. `/changes` prints the same list.
+
 ### Commands
 
 | Command | Description | Keyboard Shortcut |
@@ -134,6 +182,9 @@ Olliberty automatically includes context from your current work:
 | `Olliberty: Open Chat Widget` | Open chat in left sidebar | `Ctrl+Shift+O` |
 | `Olliberty: Open in Right Panel` | Open chat in right panel | `Ctrl+Shift+Alt+O` |
 | `Olliberty: Show Installation Instructions` | Show OS-specific installation guide | - |
+| `Olliberty: Stop` | Interrupt the current run | `Esc` (inside the chat panel) |
+| `Olliberty: Show Activity Log` | Open the output channel with every step taken | - |
+| `Olliberty: Toggle Plan-First Mode` | Switch between `plan` and `auto` execution | - |
 | `Clear Chat` | Clear chat history | - |
 
 ## Configuration
@@ -143,7 +194,10 @@ Configure Olliberty through VS Code settings:
 ```json
 {
   "olliberty.url": "http://localhost:11434",
-  "olliberty.model": "gemma4:12b-it-qat",
+  "olliberty.model": "qwen3.8:latest",
+  "olliberty.mode": "plan",
+  "olliberty.showActivityFeed": true,
+  "olliberty.streamResponses": true,
   "olliberty.effort": "medium",
   "olliberty.systemPrompt": "",
   "olliberty.temperature": 0.2,
@@ -163,13 +217,16 @@ Configure Olliberty through VS Code settings:
 ### Settings
 
 - **`olliberty.url`**: Base URL of the Ollama server (default: "http://localhost:11434")
-- **`olliberty.model`**: Model name sent to the Ollama daemon (default: "gemma4:12b-it-qat")
+- **`olliberty.model`**: Model name sent to the Ollama daemon (default: "qwen3.8:latest")
+- **`olliberty.mode`**: `plan` (draft a plan and wait for acceptance) or `auto` (run immediately). Default: `plan`
+- **`olliberty.showActivityFeed`**: Show the live step-by-step activity panel (default: `true`)
+- **`olliberty.streamResponses`**: Render model output token-by-token (default: `true`)
 - **`olliberty.effort`**: Response depth preset (`minimal`, `low`, `medium`, `high`, `max`; default: `medium`)
 - **`olliberty.systemPrompt`**: System prompt sent with every request (default: empty, i.e. none)
 - **`olliberty.temperature`**: Sampling temperature 0.0-1.0 (default: 0.2)
 - **`olliberty.maxTokens`**: Maximum tokens to generate (default: 2048)
 - **`olliberty.contextLength`**: Maximum context length (default: 4096)
-- **`olliberty.autoApplyEdits`**: If `true`, `/edit` proposals are written immediately without explicit approval (default: `false`)
+- **`olliberty.autoApplyEdits`**: If `true`, `/edit` proposals are written immediately without explicit approval (default: `false`). Ignored while `olliberty.mode` is `plan`
 - **`olliberty.codeIndex.*`**: Controls local workspace indexing size, freshness, and exclusions
 - **`olliberty.privacy.networkKillSwitchEnabled`**: If enabled, outbound plugin calls are blocked unless host is allowed
 - **`olliberty.privacy.allowedHosts`**: Allowlist used by the kill switch (default: localhost-only)
@@ -178,6 +235,13 @@ Configure Olliberty through VS Code settings:
 
 Inside the chat widget, you can control model selection without opening settings:
 
+- `/mode` → show the current execution mode
+- `/mode plan|auto` → plan first and wait for acceptance, or run immediately
+- `/plan <goal>` → draft a plan for review without running anything
+- `/accept` → accept the pending plan and execute it
+- `/discard` → discard the pending plan
+- `/activity` → show what Olliberty did on the last run and open the log
+- `/changes` → list every file written in this session
 - `/models` → list local Ollama models from `GET /api/tags`
 - `/model` → show current default model
 - `/model <name>` → switch default model (persists to your Olliberty settings)
@@ -259,6 +323,29 @@ This repository contains two independent codebases:
 npm install
 npm run compile
 ```
+
+### Installing your local build
+
+`make install` only *builds* artifacts — it does not install anything into an editor. Use these targets instead:
+
+```bash
+make install-vscode      # package the VSIX and install it into VS Code
+make install-cursor      # same, into Cursor
+make reinstall-vscode    # uninstall first, then install (use when the version is unchanged)
+make uninstall-vscode    # remove the installed extension
+```
+
+Reload the editor window afterwards (*Developer: Reload Window*) — installing does not restart the running extension host.
+
+The targets locate the editor CLI on `PATH` and fall back to the macOS app bundle. If neither works, point them at it explicitly:
+
+```bash
+make install-vscode VSCODE_BIN=/path/to/code
+```
+
+The VSIX filename is derived from `package.json`, so these keep working after `make bump-plugin-versions`.
+
+For day-to-day development, `make run-vscode` launches an Extension Development Host straight from source — no install or reload cycle.
 
 ### Testing
 ```bash

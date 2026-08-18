@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
+import { ActivityReporter } from '../activity';
 import { AgentEditService } from '../agentEditService';
 import { OllamaClient } from '../client';
 import { CodeIndexStore } from '../codeIndex';
 import { ConversationStore } from '../conversationStore';
 import { MultiAgentService } from '../multiAgentService';
+import { PlanService } from '../planService';
 import { Settings } from '../settings';
 import { TokenStore } from '../tokenStore';
 import { SharedChatViewProvider } from './sharedChatView';
@@ -19,8 +21,21 @@ export class RightPanelWidgetProvider extends SharedChatViewProvider {
     editService: AgentEditService,
     multiAgentService: MultiAgentService,
     conversationStore: ConversationStore,
-    tokenStore: TokenStore
+    tokenStore: TokenStore,
+    activity: ActivityReporter,
+    planService: PlanService
   ) {
-    super(extensionUri, client, settings, codeIndex, editService, multiAgentService, conversationStore, tokenStore);
+    super(
+      extensionUri,
+      client,
+      settings,
+      codeIndex,
+      editService,
+      multiAgentService,
+      conversationStore,
+      tokenStore,
+      activity,
+      planService
+    );
   }
 }

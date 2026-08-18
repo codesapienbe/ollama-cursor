@@ -1,7 +1,9 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { ActivityReporter } from './activity';
 import { OllamaClient } from './client';
 import { CodeIndexStore } from './codeIndex';
+import { FileDiff, computeFileDiff, formatDiffForChat } from './diff';
 import { getCurrentWorkspaceFolder } from './workspaceContext';
 
 export interface ProposedFileEdit {
@@ -13,6 +15,16 @@ export interface EditProposal {
   summary: string;
   edits: ProposedFileEdit[];
   rawResponse: string;
+}
+
+export interface AppliedChange {
+  filePath: string;
+  appliedAt: number;
+  isNewFile: boolean;
+  additions: number;
+  removals: number;
+  previousContent: string;
+  newContent: string;
 }
 
 interface ParsedEditProposal {
@@ -32,6 +44,7 @@ const MAX_STORED_PREVIEW_DOCS = 240;
 export class AgentEditService {
   private readonly encoder = new TextEncoder();
   private readonly decoder = new TextDecoder();
+  private readonly appliedChanges: AppliedChange[] = [];
   private readonly previewContentByUri = new Map<string, string>();
   private readonly previewContentProvider: vscode.TextDocumentContentProvider = {
     provideTextDocumentContent: (uri: vscode.Uri) => this.previewContentByUri.get(uri.toString()) ?? ''
@@ -39,7 +52,8 @@ export class AgentEditService {
 
   constructor(
     private readonly client: OllamaClient,
-    private readonly codeIndex: CodeIndexStore
+    private readonly codeIndex: CodeIndexStore,
+    private readonly activity: ActivityReporter
   ) {}
 
   registerPreviewContentProvider(): vscode.Disposable {
@@ -49,10 +63,21 @@ export class AgentEditService {
     );
   }
 
-  async createProposal(instruction: string, editor: vscode.TextEditor | undefined): Promise<EditProposal> {
+  async createProposal(
+    instruction: string,
+    editor: vscode.TextEditor | undefined,
+    signal?: AbortSignal
+  ): Promise<EditProposal> {
     const workspaceFolder = this.getWorkspaceFolder(editor?.document.uri);
     const editorContext = this.buildEditorContext(editor);
-    const indexedContext = await this.codeIndex.buildPromptContext(instruction, 4);
+    const indexedContext = await this.activity.run(
+      'Reading workspace index',
+      async step => {
+        const context = await this.codeIndex.buildPromptContext(instruction, 4);
+        step.update(context ? `${context.length} chars of context` : 'no indexed context');
+        return context;
+      }
+    );
 
     const prompt = [
       'You are a local coding agent running inside VS Code.',
@@ -76,10 +101,17 @@ export class AgentEditService {
       `Instruction:\n${instruction}`
     ].filter(Boolean).join('\n');
 
-    const response = await this.client.generate({
-      prompt,
-      stream: false
-    });
+    const response = await this.activity.run(
+      'Generating edit proposal',
+      async step =>
+        this.client.generate({
+          prompt,
+          stream: true,
+          signal,
+          onToken: (_chunk, full) => step.update(`${full.length} chars generated`)
+        }),
+      `model: ${this.client.getCurrentModel()}`
+    );
 
     const proposal = this.parseProposal(response);
     const summary = proposal.summary?.trim() || `Proposed ${proposal.edits.length} file edit(s).`;
@@ -90,9 +122,9 @@ export class AgentEditService {
     };
   }
 
-  async applyProposal(proposal: EditProposal): Promise<string[]> {
+  async applyProposal(proposal: EditProposal): Promise<AppliedChange[]> {
     const workspaceFolder = this.getWorkspaceFolder();
-    const appliedFiles: string[] = [];
+    const applied: AppliedChange[] = [];
 
     for (const edit of proposal.edits) {
       const targetUri = this.resolveTargetUri(workspaceFolder.uri, edit.filePath);
@@ -103,13 +135,80 @@ export class AgentEditService {
         throw new Error(`Cannot apply edit to ${edit.filePath} because the file has unsaved changes.`);
       }
 
-      const directoryUri = vscode.Uri.file(path.dirname(targetUri.fsPath));
-      await vscode.workspace.fs.createDirectory(directoryUri);
-      await vscode.workspace.fs.writeFile(targetUri, this.encoder.encode(edit.newContent));
-      appliedFiles.push(edit.filePath);
+      const stepId = this.activity.begin(`Writing ${edit.filePath}`);
+      try {
+        const existed = await this.fileExists(targetUri);
+        const previousContent = existed ? await this.readFileContent(targetUri) : '';
+        const diff = computeFileDiff(edit.filePath, previousContent, edit.newContent);
+
+        const directoryUri = vscode.Uri.file(path.dirname(targetUri.fsPath));
+        await vscode.workspace.fs.createDirectory(directoryUri);
+        await vscode.workspace.fs.writeFile(targetUri, this.encoder.encode(edit.newContent));
+
+        const change: AppliedChange = {
+          filePath: edit.filePath,
+          appliedAt: Date.now(),
+          isNewFile: !existed,
+          additions: diff.additions,
+          removals: diff.removals,
+          previousContent,
+          newContent: edit.newContent
+        };
+        this.appliedChanges.push(change);
+        applied.push(change);
+        this.activity.succeed(stepId, `+${diff.additions} -${diff.removals}`);
+      } catch (error) {
+        this.activity.fail(stepId, error instanceof Error ? error.message : String(error));
+        throw error;
+      }
     }
 
-    return appliedFiles;
+    return applied;
+  }
+
+  /** Every file this session has written, newest last. */
+  listAppliedChanges(): AppliedChange[] {
+    return this.appliedChanges.map(change => ({ ...change }));
+  }
+
+  clearAppliedChanges(): void {
+    this.appliedChanges.length = 0;
+  }
+
+  /** Reopen the before/after diff for an already-applied change. */
+  async showAppliedChangeDiff(filePath: string): Promise<void> {
+    const change = [...this.appliedChanges].reverse().find(entry => entry.filePath === filePath);
+    if (!change) {
+      throw new Error(`No recorded change for ${filePath}.`);
+    }
+
+    const beforeUri = this.buildPreviewUri(filePath, 'before', this.appliedChanges.length);
+    const afterUri = this.buildPreviewUri(filePath, 'after', this.appliedChanges.length);
+    this.storePreviewContent(beforeUri, change.previousContent);
+    this.storePreviewContent(afterUri, change.newContent);
+
+    await vscode.commands.executeCommand(
+      'vscode.diff',
+      beforeUri,
+      afterUri,
+      `Olliberty Applied · ${filePath}`,
+      { preview: false }
+    );
+  }
+
+  /** Diff each proposed edit against what is on disk right now. */
+  async buildProposalDiffs(proposal: EditProposal): Promise<FileDiff[]> {
+    const workspaceFolder = this.getWorkspaceFolder();
+    const diffs: FileDiff[] = [];
+
+    for (const edit of proposal.edits) {
+      const targetUri = this.resolveTargetUri(workspaceFolder.uri, edit.filePath);
+      const exists = await this.fileExists(targetUri);
+      const currentContent = exists ? await this.readFileContent(targetUri) : '';
+      diffs.push(computeFileDiff(edit.filePath, currentContent, edit.newContent));
+    }
+
+    return diffs;
   }
 
   async showProposalDiffs(proposal: EditProposal): Promise<void> {
@@ -156,13 +255,35 @@ export class AgentEditService {
     }
   }
 
-  formatProposalForChat(proposal: EditProposal): string {
-    const files = proposal.edits.map(edit => `- \`${edit.filePath}\``).join('\n');
+  /** Full proposal rendering: summary, per-file stats, and inline diffs. */
+  async formatProposalForChat(proposal: EditProposal): Promise<string> {
+    const diffs = await this.buildProposalDiffs(proposal);
+    const totalAdditions = diffs.reduce((sum, diff) => sum + diff.additions, 0);
+    const totalRemovals = diffs.reduce((sum, diff) => sum + diff.removals, 0);
+
     return [
       `🛠️ **${proposal.summary}**`,
+      `${diffs.length} file(s) · +${totalAdditions} −${totalRemovals}`,
       '',
-      `Files (${proposal.edits.length}):`,
-      files
+      ...diffs.map(diff => formatDiffForChat(diff, 'Update'))
+    ].join('\n');
+  }
+
+  formatAppliedChangesForChat(changes: AppliedChange[]): string {
+    const totalAdditions = changes.reduce((sum, change) => sum + change.additions, 0);
+    const totalRemovals = changes.reduce((sum, change) => sum + change.removals, 0);
+
+    const blocks = changes.map(change =>
+      formatDiffForChat(
+        computeFileDiff(change.filePath, change.previousContent, change.newContent),
+        'Applied'
+      )
+    );
+
+    return [
+      `✅ **Applied ${changes.length} file change(s)** · +${totalAdditions} −${totalRemovals}`,
+      '',
+      ...blocks
     ].join('\n');
   }
 

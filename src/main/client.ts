@@ -9,6 +9,22 @@ import { ReasoningEffort, Settings } from './settings';
 export interface GenerateParams {
   prompt: string;
   stream?: boolean;
+  /** Called for every chunk while streaming, so callers can render partial output. */
+  onToken?: (chunk: string, fullResponse: string) => void;
+  /** Aborts the in-flight request when the user interrupts the run. */
+  signal?: AbortSignal;
+}
+
+/** Thrown when the user stops a run; callers treat this as "not an error". */
+export class AbortedError extends Error {
+  constructor(message = 'Stopped by user.') {
+    super(message);
+    this.name = 'AbortedError';
+  }
+}
+
+export function isAbortedError(error: unknown): boolean {
+  return error instanceof AbortedError;
 }
 
 export class OllamaClient {
@@ -24,6 +40,11 @@ export class OllamaClient {
 
   /* High-level streaming function used by UI components */
   async generate(params: GenerateParams, abort?: AbortSignal): Promise<string> {
+    const signal = params.signal ?? abort;
+    if (signal?.aborted) {
+      throw new AbortedError();
+    }
+
     const prompt = this.applyEffortToPrompt(params.prompt);
     const requestData = JSON.stringify({
       model: this.settings.model,
@@ -47,7 +68,28 @@ export class OllamaClient {
       }
     };
 
-    return new Promise<string>((resolve, reject) => {
+    return new Promise<string>((rawResolve, rawReject) => {
+      let settled = false;
+      let onAbort: (() => void) | undefined;
+
+      const cleanup = () => {
+        if (onAbort && signal) {
+          signal.removeEventListener('abort', onAbort);
+        }
+      };
+      const resolve = (value: string) => {
+        if (settled) { return; }
+        settled = true;
+        cleanup();
+        rawResolve(value);
+      };
+      const reject = (error: Error) => {
+        if (settled) { return; }
+        settled = true;
+        cleanup();
+        rawReject(error);
+      };
+
       const req = this.transport(url).request(url, options, (res) => {
         if (res.statusCode !== 200) {
           let errorBody = '';
@@ -79,6 +121,7 @@ export class OllamaClient {
                   const parsed = JSON.parse(line);
                   if (parsed.response) {
                     fullResponse += parsed.response;
+                    params.onToken?.(parsed.response as string, fullResponse);
                   }
                   if (parsed.done) {
                     resolve(fullResponse);
@@ -121,12 +164,14 @@ export class OllamaClient {
         reject(new Error('Request to Ollama timed out'));
       });
 
-      // Handle abort signal
-      if (abort) {
-        abort.addEventListener('abort', () => {
+      /* User interruption: kill the socket so Ollama stops generating,
+         and report it as a cancellation rather than a failure. */
+      if (signal) {
+        onAbort = () => {
           req.destroy();
-          reject(new Error('Request was aborted'));
-        });
+          reject(new AbortedError());
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
       }
 
       req.setTimeout(this.settings.timeoutMs);

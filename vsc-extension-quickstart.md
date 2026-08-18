@@ -10,5 +10,5 @@
 - **Main:** ./out/main/extension.js
 - **Contributes:**
   - **Configuration:**
-    - `olliberty.model` (string, default: "gemma4:12b-it-qat"): Model name passed to the local Ollama daemon
+    - `olliberty.model` (string, default: "qwen3.8:latest"): Model name passed to the local Ollama daemon
     - `olliberty.temperature` (number, default: 0.2, min: 0, max: 1): Temperature value for the model
