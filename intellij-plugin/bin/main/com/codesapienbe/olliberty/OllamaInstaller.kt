@@ -1,4 +1,4 @@
-package com.codesapienbe.ollama
+package com.codesapienbe.olliberty
 
 import com.intellij.ide.BrowserUtil
 import com.intellij.notification.NotificationAction

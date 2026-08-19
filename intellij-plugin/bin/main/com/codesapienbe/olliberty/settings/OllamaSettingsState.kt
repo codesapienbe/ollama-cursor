@@ -1,4 +1,4 @@
-package com.codesapienbe.ollama.settings
+package com.codesapienbe.olliberty.settings
 
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.RoamingType
@@ -14,7 +14,7 @@ class OllamaSettingsState : PersistentStateComponent<OllamaSettingsState.State> 
 
     data class State(
         var url: String = "http://localhost:11434",
-        var model: String = "gemma4:12b-it-qat",
+        var model: String = "qwen3.8:latest",
         var effort: String = "medium",
         var systemPrompt: String = "",
         var temperature: Double = 0.2,

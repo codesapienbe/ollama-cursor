@@ -1,6 +1,6 @@
-package com.codesapienbe.ollama.ui
+package com.codesapienbe.olliberty.ui
 
-import com.codesapienbe.ollama.OllamaClient
+import com.codesapienbe.olliberty.OllamaClient
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileEditorManager
@@ -71,7 +71,7 @@ class OllamaChatPanel(internal val project: Project) : JPanel(BorderLayout()), D
             "models" -> {
                 val models = client.listModels()
                 if (models.isEmpty()) {
-                    "📦 No models found in Ollama. Pull one first, for example: `ollama pull gemma4:12b-it-qat`."
+                    "📦 No models found in Ollama. Pull one first, for example: `ollama pull qwen3.8:latest`."
                 } else {
                     val current = client.getCurrentModel()
                     val lines = models.joinToString("\n") { model ->

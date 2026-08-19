@@ -1,8 +1,8 @@
-package com.codesapienbe.ollama.ui
+package com.codesapienbe.olliberty.ui
 
-import com.codesapienbe.ollama.OllamaInstaller
-import com.codesapienbe.ollama.settings.OllamaSettingsState
-import com.codesapienbe.ollama.util.JsonLite
+import com.codesapienbe.olliberty.OllamaInstaller
+import com.codesapienbe.olliberty.settings.OllamaSettingsState
+import com.codesapienbe.olliberty.util.JsonLite
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager

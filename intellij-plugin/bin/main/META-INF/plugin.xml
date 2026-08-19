@@ -14,29 +14,29 @@
     <extensions defaultExtensionNs="com.intellij">
         <applicationConfigurable
                 parentId="tools"
-                instance="com.codesapienbe.ollama.settings.OllamaSettingsConfigurable"
-                id="com.codesapienbe.ollama.settings.OllamaSettingsConfigurable"
+                instance="com.codesapienbe.olliberty.settings.OllamaSettingsConfigurable"
+                id="com.codesapienbe.olliberty.settings.OllamaSettingsConfigurable"
                 displayName="Olliberty"/>
         <toolWindow id="Olliberty"
                     anchor="right"
-                    factoryClass="com.codesapienbe.ollama.ui.OllamaChatToolWindowFactory"/>
+                    factoryClass="com.codesapienbe.olliberty.ui.OllamaChatToolWindowFactory"/>
         <notificationGroup id="Olliberty" displayType="STICKY_BALLOON"/>
     </extensions>
 
     <actions>
         <group id="com.codesapienbe.olliberty.ActionGroup" text="Olliberty" popup="true">
             <action id="com.codesapienbe.olliberty.AskAI"
-                    class="com.codesapienbe.ollama.actions.AskAIAction"
+                    class="com.codesapienbe.olliberty.actions.AskAIAction"
                     text="Olliberty: Ask AI…"
                     description="Ask the local Ollama model a question"/>
             <action id="com.codesapienbe.olliberty.OpenChat"
-                    class="com.codesapienbe.ollama.actions.OpenChatAction"
+                    class="com.codesapienbe.olliberty.actions.OpenChatAction"
                     text="Olliberty: Open Chat Widget"
                     description="Open the Olliberty chat tool window">
                 <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift O"/>
             </action>
             <action id="com.codesapienbe.olliberty.ShowInstallationInstructions"
-                    class="com.codesapienbe.ollama.actions.ShowInstallationInstructionsAction"
+                    class="com.codesapienbe.olliberty.actions.ShowInstallationInstructionsAction"
                     text="Olliberty: Show Installation Instructions"
                     description="Show OS-specific Ollama installation instructions"/>
             <add-to-group group-id="ToolsMenu" anchor="last"/>

@@ -1,4 +1,4 @@
-package com.codesapienbe.ollama.settings
+package com.codesapienbe.olliberty.settings
 
 import com.intellij.openapi.options.Configurable
 import com.intellij.ui.components.JBScrollPane
@@ -53,7 +53,7 @@ class OllamaSettingsConfigurable : Configurable {
 
     override fun apply() {
         state.url = urlField.text
-        state.model = modelField.text.trim().ifEmpty { "gemma4:12b-it-qat" }
+        state.model = modelField.text.trim().ifEmpty { "qwen3.8:latest" }
         state.effort = effortField.text
         state.systemPrompt = systemPromptField.text
         temperatureField.text.toDoubleOrNull()?.let { state.temperature = it }

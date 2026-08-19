@@ -1,4 +1,4 @@
-package com.codesapienbe.ollama.util
+package com.codesapienbe.olliberty.util
 
 /**
  * Minimal hand-rolled JSON string encode/decode helpers, used instead of pulling in a JSON
