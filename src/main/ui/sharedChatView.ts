@@ -1562,6 +1562,16 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
         let changes = [];
         let streaming = '';
         let mode = 'plan';
+        /* Snapshots of the last-rendered state for each panel. updateMessages fires on every
+         * activity tick during generation (as often as every WEBVIEW_UPDATE_INTERVAL_MS), but
+         * most ticks don't change most panels — rebuilding innerHTML unconditionally on every
+         * tick is what causes the visible flashing/flicker while Olliberty is working. Skipping
+         * a render when its slice of state is byte-identical to last time removes that churn. */
+        let lastRenderedMessagesJson = null;
+        let lastRenderedStreaming = null;
+        let lastActivityJson = null;
+        let lastChangesJson = null;
+        let lastAgentRunsJson = null;
         let model = '';
         let showActivity = true;
 
@@ -1721,6 +1731,12 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         function renderActivity() {
+            const snapshotJson = JSON.stringify({ showActivity, activity });
+            if (snapshotJson === lastActivityJson) {
+                return;
+            }
+            lastActivityJson = snapshotJson;
+
             if (!showActivity || !Array.isArray(activity) || activity.length === 0) {
                 activityContainer.style.display = 'none';
                 activityList.innerHTML = '';
@@ -1758,6 +1774,12 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         function renderChanges() {
+            const snapshotJson = JSON.stringify(changes);
+            if (snapshotJson === lastChangesJson) {
+                return;
+            }
+            lastChangesJson = snapshotJson;
+
             if (!Array.isArray(changes) || changes.length === 0) {
                 changesContainer.style.display = 'none';
                 changesList.innerHTML = '';
@@ -1817,6 +1839,12 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         function renderAgentRuns() {
+            const snapshotJson = JSON.stringify(agentRuns);
+            if (snapshotJson === lastAgentRunsJson) {
+                return;
+            }
+            lastAgentRunsJson = snapshotJson;
+
             if (!Array.isArray(agentRuns) || agentRuns.length === 0) {
                 agentRunsContainer.style.display = 'none';
                 agentRunsList.innerHTML = '';
@@ -1869,6 +1897,35 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         function renderMessages() {
+            const messagesJson = JSON.stringify(messages);
+            const settledUnchanged = messagesJson === lastRenderedMessagesJson;
+            const streamingUnchanged = streaming === lastRenderedStreaming;
+
+            if (settledUnchanged && streamingUnchanged) {
+                /* Nothing this panel cares about changed — most updateMessages ticks during a
+                 * run are activity/agent-run progress, not new chat content. */
+                return;
+            }
+
+            if (settledUnchanged && streaming && lastRenderedStreaming !== null) {
+                /* Only the in-progress streaming text advanced. Patch the trailing bubble in
+                 * place instead of tearing down and rebuilding the whole history — that full
+                 * rebuild on every token is what caused the visible flicker/scroll-jump. */
+                const last = messagesContainer.lastElementChild;
+                const body = last && last.classList.contains('streaming')
+                    ? last.querySelector('.message-content')
+                    : null;
+                if (body) {
+                    body.innerHTML = renderContent(streaming) + '<span class="cursor">▋</span>';
+                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                    lastRenderedStreaming = streaming;
+                    return;
+                }
+            }
+
+            lastRenderedMessagesJson = messagesJson;
+            lastRenderedStreaming = streaming;
+
             messagesContainer.innerHTML = '';
 
             if (messages.length === 0 && !streaming) {
