@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Minimal unified diff generator.
  *  Used to show every proposed and applied change inline in the chat, so the
  *  user never has to guess what the agent touched. The structured hunks are

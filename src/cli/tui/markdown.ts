@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Markdown → ANSI.
  *  Every transcript entry the engine produces is markdown (the plugin renders
  *  the same strings in a webview), so this is the CLI's whole rendering

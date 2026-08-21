@@ -11,3 +11,16 @@ vsc-extension-quickstart.md
 **/*.map
 **/*.ts
 **/.vscode-test.*
+# Local workspace state — the code index carries file paths and code previews
+# from whatever machine packaged the VSIX, so it must never ship.
+.olliberty/**
+.ollama/**
+# Build and release plumbing the extension does not need at runtime.
+.github/**
+.npmignore
+Makefile
+setup.sh
+scripts/**
+tsconfig.cli.json
+dist/**
+*.vsix

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Diff painting: the OpenCode-style file panel — a path header with the
  *  +/− tally, then numbered rows with tinted add/remove backgrounds and
  *  hunk separators. Everything is driven from standard unified text, so the

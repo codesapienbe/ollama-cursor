@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Workspace file helpers the CLI needs where the IDE plugin would ask
  *  VS Code: locating Graphify exports, reading `@file` attachments, and
  *  listing paths for completion.                                        */

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Raw-mode key decoder.
  *  Turns a stdin byte stream into discrete key events, including bracketed
  *  paste (so pasting code never looks like a hundred keystrokes) and the

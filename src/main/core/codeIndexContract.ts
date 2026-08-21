@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Host-agnostic code index contract plus the pure ranking helpers.
  *  The on-disk format is shared: `.olliberty/code-index.json` written by
  *  the IDE plugin is read by the CLI and vice versa.                     */

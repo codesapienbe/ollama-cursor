@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Host-agnostic Ollama installation guidance.
  *  Pure OS detection and instruction text so the IDE plugin can show it in a
  *  modal and the CLI can print it in the terminal from one source of truth. */
@@ -46,7 +48,7 @@ export function getInstallationInfo(): InstallationInfo {
           '# After installation, verify:',
           'ollama --version',
           '',
-          '# Start Ollama service:',
+          '# Start the Ollama LLM server:',
           'ollama serve'
         ],
         downloadUrl: 'https://ollama.com/download/windows',
@@ -68,7 +70,7 @@ export function getInstallationInfo(): InstallationInfo {
           '# After installation, verify:',
           'ollama --version',
           '',
-          '# Start Ollama service:',
+          '# Start the Ollama LLM server:',
           'ollama serve'
         ],
         downloadUrl: 'https://ollama.com/download/mac',
@@ -94,7 +96,7 @@ export function getInstallationInfo(): InstallationInfo {
           '# After installation, verify:',
           'ollama --version',
           '',
-          '# Start Ollama service:',
+          '# Start the Ollama LLM server:',
           'ollama serve',
           '',
           '# Or run as system service:',
@@ -117,7 +119,7 @@ export function getInstallationInfo(): InstallationInfo {
           '# After installation, verify:',
           'ollama --version',
           '',
-          '# Start Ollama service:',
+          '# Start the Ollama LLM server:',
           'ollama serve'
         ],
         downloadUrl: 'https://ollama.com/download'

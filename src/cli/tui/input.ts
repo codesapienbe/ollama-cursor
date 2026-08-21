@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  The composer: a Claude-Code-style input box with a completion popup, plus
  *  the line-editing keys people expect from a shell (word motion, kill ring
  *  basics, history, bracketed paste, multi-line entry).                   */

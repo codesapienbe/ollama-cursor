@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 package com.codesapienbe.olliberty.settings
 
 import com.intellij.openapi.options.Configurable

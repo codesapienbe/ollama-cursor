@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 import { ActivitySink } from './core/activityContract';
 import { OllamaClient } from './client';
 import { CodeContextProvider } from './core/codeIndexContract';
@@ -10,6 +12,10 @@ export interface DelegatedAgentProgress {
   goal: string;
   status: DelegatedAgentStatus;
   detail?: string;
+  /** Characters streamed so far — the only progress signal a local model gives. */
+  chars?: number;
+  startedAt?: number;
+  endedAt?: number;
 }
 
 export interface DelegatedRunResult {
@@ -26,6 +32,10 @@ interface AgentBlueprint {
 
 const MAX_SHARED_CONTEXT_CHARS = 64_000;
 const MAX_DETAIL_CHARS = 180;
+/* Tokens arrive faster than any terminal wants to repaint; status changes are
+   always published, token growth only this often. */
+const PROGRESS_INTERVAL_MS = 100;
+const SYNTHESIS_ID = 'synthesis';
 
 const DEFAULT_BLUEPRINTS: AgentBlueprint[] = [
   {
@@ -72,19 +82,30 @@ export class MultiAgentService {
     onProgress: (agents: DelegatedAgentProgress[]) => void,
     signal?: AbortSignal
   ): Promise<DelegatedRunResult> {
-    const sharedContext = await this.buildSharedContext(instruction);
     const progress = DEFAULT_BLUEPRINTS.map<DelegatedAgentProgress>(blueprint => ({
       id: blueprint.id,
       name: blueprint.name,
       goal: blueprint.goal,
       status: 'queued'
     }));
-    onProgress([...progress]);
+    /* The synthesis pass is reported alongside the agents so the caller's task
+       list stays populated after the fan-out finishes, but it is not an agent
+       and never appears in the returned agent list. */
+    const synthesisTask: DelegatedAgentProgress = {
+      id: SYNTHESIS_ID,
+      name: 'Synthesis',
+      goal: 'Merge sub-agent results into one answer.',
+      status: 'queued'
+    };
+    const publish = this.progressPublisher(onProgress, [...progress, synthesisTask]);
+    publish(true);
+
+    const sharedContext = await this.buildSharedContext(instruction);
 
     const settled = await Promise.all(
       DEFAULT_BLUEPRINTS.map(async blueprint => {
         this.updateAgentStatus(progress, blueprint.id, 'running');
-        onProgress([...progress]);
+        publish(true);
         const stepId = this.activity.begin(`Agent · ${blueprint.name}`, blueprint.goal);
 
         try {
@@ -92,12 +113,16 @@ export class MultiAgentService {
             prompt: this.buildAgentPrompt(blueprint, instruction, sharedContext),
             stream: true,
             signal,
-            onToken: (_chunk, full) => this.activity.update(stepId, `${full.length} chars`)
+            onToken: (_chunk, full) => {
+              this.activity.update(stepId, `${full.length} chars`);
+              this.updateAgentChars(progress, blueprint.id, full.length);
+              publish();
+            }
           });
           const detail = this.toStatusDetail(response);
           this.activity.succeed(stepId, detail);
           this.updateAgentStatus(progress, blueprint.id, 'completed', detail);
-          onProgress([...progress]);
+          publish(true);
           return {
             id: blueprint.id,
             name: blueprint.name,
@@ -110,7 +135,7 @@ export class MultiAgentService {
           const detail = this.toStatusDetail(error instanceof Error ? error.message : String(error));
           this.activity.fail(stepId, detail);
           this.updateAgentStatus(progress, blueprint.id, 'failed', detail);
-          onProgress([...progress]);
+          publish(true);
           return {
             id: blueprint.id,
             name: blueprint.name,
@@ -128,21 +153,41 @@ export class MultiAgentService {
       return { synthesis: '', agents: progress };
     }
 
-    const synthesis = await this.activity.run(
-      'Synthesizing agent results',
-      async step =>
-        this.client.generate({
-          prompt: this.buildSynthesisPrompt(instruction, settled, sharedContext),
-          stream: true,
-          signal,
-          onToken: (_chunk, full) => step.update(`${full.length} chars`)
-        })
-    );
+    synthesisTask.status = 'running';
+    synthesisTask.startedAt = Date.now();
+    publish(true);
 
-    return {
-      synthesis: synthesis.trim(),
-      agents: progress
-    };
+    try {
+      const synthesis = await this.activity.run(
+        'Synthesizing agent results',
+        async step =>
+          this.client.generate({
+            prompt: this.buildSynthesisPrompt(instruction, settled, sharedContext),
+            stream: true,
+            signal,
+            onToken: (_chunk, full) => {
+              step.update(`${full.length} chars`);
+              synthesisTask.chars = full.length;
+              publish();
+            }
+          })
+      );
+
+      synthesisTask.status = 'completed';
+      synthesisTask.endedAt = Date.now();
+      publish(true);
+
+      return {
+        synthesis: synthesis.trim(),
+        agents: progress
+      };
+    } catch (error) {
+      synthesisTask.status = 'failed';
+      synthesisTask.endedAt = Date.now();
+      synthesisTask.detail = this.toStatusDetail(error instanceof Error ? error.message : String(error));
+      publish(true);
+      throw error;
+    }
   }
 
   private async buildSharedContext(instruction: string): Promise<string> {
@@ -219,6 +264,23 @@ export class MultiAgentService {
     ].join('\n');
   }
 
+  /* One throttled emitter per run: `tasks` is the live array the run mutates,
+     so every publish sends a fresh copy of the current state. */
+  private progressPublisher(
+    onProgress: (agents: DelegatedAgentProgress[]) => void,
+    tasks: DelegatedAgentProgress[]
+  ): (force?: boolean) => void {
+    let lastPublishedAt = 0;
+    return (force = false) => {
+      const now = Date.now();
+      if (!force && now - lastPublishedAt < PROGRESS_INTERVAL_MS) {
+        return;
+      }
+      lastPublishedAt = now;
+      onProgress(tasks.map(task => ({ ...task })));
+    };
+  }
+
   private updateAgentStatus(
     progress: DelegatedAgentProgress[],
     agentId: string,
@@ -232,6 +294,18 @@ export class MultiAgentService {
 
     entry.status = status;
     entry.detail = detail;
+    if (status === 'running') {
+      entry.startedAt = Date.now();
+    } else if (status === 'completed' || status === 'failed') {
+      entry.endedAt = Date.now();
+    }
+  }
+
+  private updateAgentChars(progress: DelegatedAgentProgress[], agentId: string, chars: number): void {
+    const entry = progress.find(agent => agent.id === agentId);
+    if (entry) {
+      entry.chars = chars;
+    }
   }
 
   private toStatusDetail(text: string): string {

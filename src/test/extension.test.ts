@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 import * as assert from 'assert';
 
 // You can import and use all API from the 'vscode' module

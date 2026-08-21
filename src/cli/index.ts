@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  CLI entry point.
  *  Builds the same service graph the extension builds in its Container, then
  *  either starts the interactive TUI or runs a single request and exits.  */
@@ -208,7 +210,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 function helpText(version: string): string {
   const title = gradient('olliberty', wordmarkGradient);
   return [
-    `${title} ${paint(`v${version}`, {})} — local, private AI coding agent powered by Ollama`,
+    `${title} ${paint(`v${version}`, {})} — local, private AI coding agent on your Ollama LLM server`,
     '',
     'USAGE',
     '  olliberty                        start the interactive TUI',
@@ -218,7 +220,7 @@ function helpText(version: string): string {
     '',
     'OPTIONS',
     '  -m, --model <name>     model to use for this run',
-    '      --url <url>        Ollama base URL (default http://localhost:11434)',
+    '      --url <url>        Ollama LLM server URL (default http://localhost:11434)',
     '      --mode plan|auto   plan-first gate, or run immediately',
     '      --effort <level>   minimal | low | medium | high | max',
     '  -C, --cwd <dir>        treat this directory as the workspace',
@@ -238,7 +240,10 @@ function helpText(version: string): string {
     'CONFIG',
     `  user     ${shortenPath(`${userDataDir()}/config.json`)}`,
     '  project  <workspace>/.olliberty/config.json',
-    '  env      OLLIBERTY_URL or OLLAMA_HOST, OLLIBERTY_MODEL, OLLIBERTY_MODE, OLLIBERTY_EFFORT'
+    '  env      OLLIBERTY_URL or OLLAMA_HOST, OLLIBERTY_MODEL, OLLIBERTY_MODE, OLLIBERTY_EFFORT',
+    '',
+    'Free software under GPL-3.0-or-later, with no warranty. Source and licence:',
+    '  https://github.com/codesapienbe/olliberty'
   ].join('\n');
 }
 

@@ -1,3 +1,5 @@
+/* SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+ * SPDX-License-Identifier: GPL-3.0-or-later */
 /* Olliberty IntelliJ chat panel — Apple-inspired glassmorphic UI.
    Standalone (no IDE theme variables available inside JCEF), so light/dark
    is handled via prefers-color-scheme instead of live Look&Feel sync. */

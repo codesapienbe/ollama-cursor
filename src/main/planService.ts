@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Plan-first execution gate.
  *  Every request in `plan` mode is turned into an explicit, reviewable
  *  plan before any answer is produced or any file is touched.        */

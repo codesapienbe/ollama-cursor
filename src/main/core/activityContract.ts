@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Host-agnostic activity reporting contract.
  *  Both hosts record the same step stream: the extension mirrors it into a
  *  webview plus an output channel, the CLI paints it in the terminal.      */

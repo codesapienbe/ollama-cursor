@@ -1,10 +1,10 @@
 <idea-plugin>
     <id>com.codesapienbe.olliberty</id>
     <name>Olliberty</name>
-    <vendor url="https://github.com/codesapienbe/ollama-cursor">codesapienbe</vendor>
+    <vendor url="https://github.com/codesapienbe/olliberty">codesapienbe</vendor>
 
     <description><![CDATA[
-        <b>Olliberty</b> — local, private AI coding assistance powered by <a href="https://ollama.com">Ollama</a>.
+        <b>Olliberty</b> — local, private AI coding assistance backed by <a href="https://ollama.com">Ollama</a> as the LLM server.
         Chat with a locally running model, ask ad-hoc questions about your code, and get
         OS-specific help installing Ollama when it isn't detected. No code ever leaves your machine.
     ]]></description>

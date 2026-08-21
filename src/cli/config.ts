@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  File-backed settings for the CLI.
  *  Same keys, defaults, and semantics as the VS Code configuration, layered
  *  defaults < ~/.olliberty/config.json < <project>/.olliberty/config.json

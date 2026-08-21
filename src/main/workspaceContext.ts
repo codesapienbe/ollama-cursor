@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 import * as vscode from 'vscode';
 
 export function getCurrentWorkspaceFolder(preferredUri?: vscode.Uri): vscode.WorkspaceFolder | undefined {

@@ -1,6 +1,6 @@
 # Olliberty
 
-Transform your editor — or your terminal — into an AI-powered coding assistant with local Ollama integration! This project provides a modern chat interface similar to GitHub Copilot, complete with context-aware responses and inline code completion, plus a full-screen terminal UI for people who live in the shell.
+Transform your editor — or your terminal — into an AI-powered coding assistant with a local Ollama LLM server! This project provides a modern chat interface similar to GitHub Copilot, complete with context-aware responses and inline code completion, plus a full-screen terminal UI for people who live in the shell.
 
 ## Supported surfaces
 
@@ -14,7 +14,7 @@ Transform your editor — or your terminal — into an AI-powered coding assista
 IntelliJ IDEA cannot run VS Code extensions, so it's a distinct Kotlin/Gradle
 codebase that mirrors the same features (chat widget, Ask AI, OS-aware
 installer, configurable model/temperature/tokens) against the same local
-Ollama daemon.
+Ollama LLM server.
 
 The CLI is not a reimplementation: it imports the same plan gate, edit
 proposal contract, code index, secret scrubber, conversation store, and
@@ -26,11 +26,11 @@ both.
 
 ## Features
 
-- **🖥️ Terminal UI**: A full `olliberty` CLI with the same engine — plan gate, diffs, sub-agent tree, activity feed (see [Olliberty CLI](#olliberty-cli))
+- **🖥️ Terminal UI**: A full `olliberty` CLI with the same engine — plan gate, diffs, live sub-task side panel, activity feed (see [Olliberty CLI](#olliberty-cli))
 - **🤖 Modern Chat Interface**: Beautiful webview-based chat widget similar to GitHub Copilot
 - **📱 Multiple Access Points**: Available in both left sidebar and right panel (secondary sidebar)
 - **📋 Plan-First by Default**: Every request is turned into a reviewable plan; nothing runs and no file is written until you accept it
-- **⏹ Interruptible**: Stop any run mid-flight with `Esc` or the stop button — partial output is kept, and the socket to Ollama is closed so generation actually stops
+- **⏹ Interruptible**: Stop any run mid-flight with `Esc` or the stop button — partial output is kept, and the socket to the Ollama LLM server is closed so generation actually stops
 - **🔎 Live Activity Feed**: A running list of every step — indexing, context retrieval, model calls, file writes — with durations, mirrored to the **Olliberty** output channel
 - **⌨️ Streaming Output**: Model output appears token-by-token in the chat instead of after a silent wait
 - **📄 Visible Changes**: Every proposed and applied edit is shown as an inline coloured diff plus a per-session **Changes** panel you can click to reopen any diff
@@ -77,7 +77,7 @@ olliberty
 ```
 
 You get a gradient wordmark, a boxed composer, and a status bar showing the
-workspace, git branch, model, reasoning effort, mode, and Ollama connectivity.
+workspace, git branch, model, reasoning effort, mode, and Ollama LLM server connectivity.
 
 ```
  ███  █     █     █████ ████  █████ ████  █████ █   █
@@ -134,7 +134,7 @@ widget does — `/mode`, `/plan`, `/accept`, `/discard`, `/edit`, `/approve`,
 | `/attach <path>` / `/detach <path\|all>` | Manage attached context files |
 | `/context` | Show exactly what the next request will carry |
 | `/config [key] [value]` | Inspect effective configuration and where each value came from, or write one to your user config |
-| `/doctor` | Check Ollama connectivity, the configured model, and print install instructions if it is missing |
+| `/doctor` | Check the Ollama LLM server, the configured model, and print install instructions if it is missing |
 | `/clear`, `/exit` | Start a new session, leave the CLI |
 
 ### Non-interactive use
@@ -190,8 +190,16 @@ for throwaway or per-project state.
 
 `timeoutMs` is worth raising (it defaults to 45 s, matching the plugin) if you
 run `/agents` against a large model: three sub-agents plus a synthesis pass
-contend for the same Ollama process, and a slow first token can otherwise time
+contend for the same Ollama LLM server, and a slow first token can otherwise time
 one of them out.
+
+While `/agents` runs, the sub-tasks get their own column on the right of the
+frame: one coloured block per task — spinner, elapsed time, streamed character
+count, and a bar that sweeps while that task is generating — with the synthesis
+pass listed as the last task. Each task keeps its colour for the whole run, so
+parallel work is easy to tell apart at a glance. Below 76 columns there is no
+room for two columns and the sub-agent tree is stacked above the composer
+instead.
 
 ### State, and what is shared with the IDE
 
@@ -215,7 +223,7 @@ so. The network kill switch still applies: outbound requests are restricted to
 ## Installation & Setup
 
 ### Prerequisites
-Olliberty requires **Ollama** to be installed on your system. If Ollama is not installed, it will automatically detect your operating system and provide installation instructions.
+Olliberty requires the **Ollama LLM server** to be installed on your system. If Ollama is not installed, it will automatically detect your operating system and provide installation instructions.
 
 ### Extension Installation (VS Code and Cursor)
 
@@ -336,7 +344,7 @@ Running steps pulse, finished steps show their duration, failed steps turn red w
 
 While anything is running, the send button turns into a red **■** stop control and the composer shows *Press `Esc` to stop*. Either one interrupts immediately:
 
-- The HTTP socket to Ollama is destroyed, so the model actually stops generating rather than continuing in the background.
+- The HTTP socket to the Ollama LLM server is destroyed, so the model actually stops generating rather than continuing in the background.
 - **Partial output is kept.** Whatever streamed before you stopped stays in the transcript, marked *Stopped by you — partial response above*.
 - Interrupted steps show as `⏹` in the activity feed instead of silently vanishing.
 - Nothing is written to disk by a stopped run. Stopping during planning leaves no plan; stopping during edit generation leaves no proposal.
@@ -391,8 +399,8 @@ Configure Olliberty through VS Code settings:
 
 ### Settings
 
-- **`olliberty.url`**: Base URL of the Ollama server (default: "http://localhost:11434")
-- **`olliberty.model`**: Model name sent to the Ollama daemon (default: "qwen3.8:latest")
+- **`olliberty.url`**: Base URL of the Ollama LLM server (default: "http://localhost:11434")
+- **`olliberty.model`**: Model name sent to the Ollama LLM server (default: "qwen3.8:latest")
 - **`olliberty.mode`**: `plan` (draft a plan and wait for acceptance) or `auto` (run immediately). Default: `plan`
 - **`olliberty.showActivityFeed`**: Show the live step-by-step activity panel (default: `true`)
 - **`olliberty.streamResponses`**: Render model output token-by-token (default: `true`)
@@ -482,7 +490,7 @@ If you see "Ollama not found" messages:
 - **Terminal Access**: Ensure terminal has necessary permissions
 
 #### Linux
-- **Systemd Service**: Enable and start Ollama service
+- **Systemd Service**: Enable and start the Ollama LLM server
 - **Dependencies**: Install required dependencies (CUDA drivers for GPU)
 - **User Permissions**: Ensure user has access to required resources
 
@@ -565,13 +573,29 @@ cd intellij-plugin
 
 - **VS Code**: Version 1.85.0 or higher, **or Cursor** (any recent version — same extension format)
 - **IntelliJ IDEA**: Version 2023.3 or higher (Community or Ultimate), via the separate plugin in `intellij-plugin/`
-- **Ollama**: Latest version recommended
+- **Ollama LLM server**: Latest version recommended
 - **Node.js**: 18 or newer — required to run the CLI, and to build the extension from source
 - **JDK 17+**: For building the IntelliJ plugin from source
 
 ## License
 
-MIT License - see LICENSE file for details.
+Olliberty is free software. You can redistribute it and/or modify it under the
+terms of the **GNU General Public License** as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. The full text is in [LICENSE.txt](LICENSE.txt).
+
+It is distributed in the hope that it will be useful, but **without any
+warranty** — without even the implied warranty of merchantability or fitness
+for a particular purpose. See the GNU General Public License for details.
+
+```
+Copyright (C) 2026 Yilmaz Mustafa
+SPDX-License-Identifier: GPL-3.0-or-later
+```
+
+That choice is deliberate: a tool whose whole point is that your code never
+leaves your machine should be one you can read, change, and redistribute — and
+so should anything built on top of it.
 
 ## Contributing
 
@@ -581,6 +605,10 @@ MIT License - see LICENSE file for details.
 4. Add tests if applicable
 5. Submit a pull request
 
+Contributions are accepted under the same licence as the project
+(GPL-3.0-or-later). Keep the `SPDX-License-Identifier` header on any new source
+file you add.
+
 ## Support
 
 - **Issues**: Report bugs and request features on GitHub
@@ -589,4 +617,4 @@ MIT License - see LICENSE file for details.
 
 ---
 
-**Note**: Olliberty works entirely with your local Ollama installation. No data is sent to external servers, ensuring your code remains private and secure.
+**Note**: Olliberty works entirely against your local Ollama LLM server. No data is sent to external servers, ensuring your code remains private and secure.

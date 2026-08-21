@@ -66,6 +66,7 @@ test-cli:
 	npm run test:cli
 
 build-intellij:
+	@rm -f "$(INTELLIJ_DIR)"/build/distributions/*.zip
 	cd "$(INTELLIJ_DIR)" && ./gradlew buildPlugin
 
 bump-plugin-versions:
@@ -79,7 +80,10 @@ bundle: bump-plugin-versions build-vscode build-intellij
 	@name=$$(node -p "require('$(ROOT_DIR)/package.json').name"); \
 	version=$$(node -p "require('$(ROOT_DIR)/package.json').version"); \
 	cp "$(ROOT_DIR)/$$name-$$version.vsix" "$(DIST_DIR)/"; \
-	cp "$(INTELLIJ_DIR)"/build/distributions/*.zip "$(DIST_DIR)/"; \
+	ideaName=$$(grep '^pluginName' "$(INTELLIJ_DIR)/gradle.properties" | cut -d= -f2 | tr -d '[:space:]'); \
+	ideaVersion=$$(grep '^pluginVersion' "$(INTELLIJ_DIR)/gradle.properties" | cut -d= -f2 | tr -d '[:space:]'); \
+	ideaZip="$$ideaName-$$ideaVersion.zip"; \
+	cp "$(INTELLIJ_DIR)/build/distributions/$$ideaZip" "$(DIST_DIR)/"; \
 	npm pack --pack-destination "$(DIST_DIR)" >/dev/null; \
 	echo ""; \
 	echo "Bundled into $(DIST_DIR):"; \
@@ -89,7 +93,7 @@ bundle: bump-plugin-versions build-vscode build-intellij
 	echo "  code   --install-extension $(DIST_DIR)/$$name-$$version.vsix"; \
 	echo "  cursor --install-extension $(DIST_DIR)/$$name-$$version.vsix"; \
 	echo "  npm install -g $(DIST_DIR)/$$name-$$version.tgz"; \
-	echo "  IntelliJ IDEA -> Settings -> Plugins -> Install Plugin from Disk... -> $(DIST_DIR)/$$(cd "$(DIST_DIR)" && ls -1 *.zip | head -1)"
+	echo "  IntelliJ IDEA -> Settings -> Plugins -> Install Plugin from Disk... -> $(DIST_DIR)/$$ideaZip"
 
 # Package the VSIX and install it into VS Code, replacing any existing copy.
 install-vscode: build-vscode

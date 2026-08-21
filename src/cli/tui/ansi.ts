@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  ANSI primitives: colour degradation, display width, and style-preserving
  *  wrapping. Hand-rolled on purpose — Olliberty ships no runtime
  *  dependencies, so the CLI cannot pull in a terminal toolkit.           */

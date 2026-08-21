@@ -1,5 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Stateless HTTP client that streams tokens from the Ollama
- *  daemon.  Dependency-Inversion: accepts an abstract Settings
+ *  LLM server.  Dependency-Inversion: accepts an abstract Settings
  *  interface instead of querying VS Code directly.               */
 
 import * as https from 'https';

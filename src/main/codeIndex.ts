@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Local workspace code index for the IDE host.
  *  Writes `.olliberty/code-index.json` in the workspace root — the same
  *  document the CLI reads and writes, so an index built in either surface

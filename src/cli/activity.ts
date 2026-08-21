@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  CLI activity reporting.
  *  Same step stream the IDE shows in its feed and output channel: the
  *  terminal paints it live, and every line is mirrored to a log file so

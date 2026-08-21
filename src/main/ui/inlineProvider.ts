@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  UI: InlineCompletionProvider
  *  - Provides auto-completion suggestions in real-time
  *  - Integrates with VS Code's built-in IntelliSense

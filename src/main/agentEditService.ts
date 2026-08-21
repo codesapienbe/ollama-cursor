@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  IDE-side file editing: generate a proposal, show diffs in the editor,
  *  then write only after an explicit approval. The prompt contract, JSON
  *  parsing, path safety, and chat rendering are shared with the CLI via

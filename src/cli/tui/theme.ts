@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Terminal palette.
  *  Cool blue → violet → coral gradient for the wordmark (the Gemini CLI
  *  look the user asked for), with OpenCode-style diff and agent colours
@@ -70,5 +72,30 @@ export const glyphs = {
   boxVertical: '│',
   treeBranch: '├─',
   treeLast: '╰─',
-  treePipe: '│ '
+  treePipe: '│ ',
+  taskBar: '▎',
+  barFill: '━',
+  barTrack: '─'
 };
+
+/*  Per-sub-task tints, cycled by task index.
+ *  Parallel work is only readable if each task keeps the same colour for the
+ *  whole run, so the index into this table — not the status — picks the row
+ *  background; status only changes the marker and the bar.               */
+export interface TaskTint {
+  accent: Rgb;
+  bg: Rgb;
+}
+
+export const taskTints: TaskTint[] = [
+  { accent: palette.violet, bg: { r: 42, g: 34, b: 58 } },
+  { accent: palette.teal, bg: { r: 26, g: 46, b: 48 } },
+  { accent: palette.amber, bg: { r: 52, g: 42, b: 26 } },
+  { accent: palette.green, bg: { r: 26, g: 48, b: 36 } },
+  { accent: palette.magenta, bg: { r: 50, g: 32, b: 48 } },
+  { accent: palette.blue, bg: { r: 26, g: 38, b: 56 } }
+];
+
+export function taskTint(index: number): TaskTint {
+  return taskTints[((index % taskTints.length) + taskTints.length) % taskTints.length];
+}

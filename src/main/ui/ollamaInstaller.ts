@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Ollama Installation Helper (IDE surface)
  *  - Detects user's operating system
  *  - Provides OS-specific installation instructions
@@ -256,7 +258,7 @@ export class OllamaInstaller {
             <h2>After Installation</h2>
             <div class="code-block">
                 <button class="copy-button" onclick="copyCommand('ollama serve')">Copy</button>
-                <pre># Start Ollama service
+                <pre># Start the Ollama LLM server
 ollama serve
 
 # Download a model (example)

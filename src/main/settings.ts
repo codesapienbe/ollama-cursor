@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Central settings accessor for the IDE host.
  *  Single Responsibility: read & validate user configuration.
  *  Open/Closed: modification only by adding new getters.

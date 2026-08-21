@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Live activity reporting for the IDE host.
  *  Single Responsibility: record every step Olliberty takes and
  *  broadcast it so the chat webview and the output channel can

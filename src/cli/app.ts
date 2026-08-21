@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Interactive TUI.
  *  Wires the shared turn engine (AgentSession) to the terminal: permanent
  *  transcript above, a live frame below (activity feed, sub-agent tree,
@@ -25,6 +27,13 @@ import { KeyDecoder } from './tui/keys';
 import { renderMarkdown } from './tui/markdown';
 import { Screen } from './tui/screen';
 import { renderActivity, renderAgents, renderStreamTail, renderWorkingLine } from './tui/statusview';
+import {
+  canSplitColumns,
+  composeColumns,
+  renderTaskPanel,
+  taskPanelBodyWidth,
+  taskPanelWidth
+} from './tui/taskpanel';
 import { palette } from './tui/theme';
 import { gitBranch, listPathCompletions } from './workspaceFiles';
 
@@ -427,20 +436,37 @@ export class TuiApp {
     const busy = this.state.generating;
     const frame: string[] = [];
 
+    /* Sub-tasks get their own column on the right whenever one is running and
+       the terminal is wide enough; narrower terminals keep the stacked tree. */
+    const split = this.agents.length > 0 && canSplitColumns(width);
+    const bodyWidth = split ? taskPanelBodyWidth(width) : width;
+    const body: string[] = [];
+
     if (busy && this.deps.settings.showActivityFeed) {
-      frame.push(...renderActivity(this.activitySteps, { width, tick: this.tick, maxRows: 5 }));
+      body.push(...renderActivity(this.activitySteps, { width: bodyWidth, tick: this.tick, maxRows: 5 }));
     }
 
-    if (this.agents.length) {
-      frame.push(...renderAgents(this.agents, { width, tick: this.tick }));
+    if (this.agents.length && !split) {
+      body.push(...renderAgents(this.agents, { width, tick: this.tick }));
     }
 
     if (this.streaming && this.streamText) {
-      frame.push(...renderStreamTail(this.streamText, { width, tick: this.tick, maxRows: MAX_STREAM_TAIL_ROWS }));
+      body.push(...renderStreamTail(this.streamText, { width: bodyWidth, tick: this.tick, maxRows: MAX_STREAM_TAIL_ROWS }));
     }
 
     if (busy) {
-      frame.push(renderWorkingLine(this.busyLabel(), Date.now() - this.runStartedAt, { width, tick: this.tick }));
+      body.push(renderWorkingLine(this.busyLabel(), Date.now() - this.runStartedAt, { width: bodyWidth, tick: this.tick }));
+    }
+
+    if (split) {
+      const panel = renderTaskPanel(this.agents, {
+        width: taskPanelWidth(width),
+        tick: this.tick,
+        maxRows: this.taskPanelMaxRows()
+      });
+      frame.push(...composeColumns(body, panel, bodyWidth));
+    } else {
+      frame.push(...body);
     }
 
     if (this.pendingDiffBanner.length && !busy && this.state.hasPendingEdit) {
@@ -482,6 +508,12 @@ export class TuiApp {
       row: composerOffset + composer.cursorRow,
       column: composer.cursorColumn
     });
+  }
+
+  /* Leave room for the composer, footer, and a couple of transcript lines so
+     the panel never pushes the prompt off the viewport. */
+  private taskPanelMaxRows(): number {
+    return Math.max(4, this.screen.rows - 10);
   }
 
   private busyLabel(): string {

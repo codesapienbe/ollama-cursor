@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Host-agnostic settings contract.
  *  The VS Code extension reads these values from workspace configuration
  *  and the CLI reads them from config files, but every consumer below

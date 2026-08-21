@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Unit tests for the parts of the CLI that are easy to get subtly wrong:
  *  key decoding, the line editor, display width/wrapping, glob pruning,
  *  configuration layering, and markdown/diff rendering.
@@ -9,14 +11,23 @@ import * as os from 'os';
 import * as path from 'path';
 import { test } from 'node:test';
 import { computeFileDiff } from '../../main/diff';
+import { DelegatedAgentProgress, MultiAgentService } from '../../main/multiAgentService';
 import { FileSettings } from '../config';
 import { compileGlob } from '../glob';
 import { extractMentions } from '../app';
+import { AgentRunView } from '../session';
 import { setColorDepth, stringWidth, truncate, wrapLine } from '../tui/ansi';
 import { computeCompletions } from '../tui/completion';
 import { Composer } from '../tui/input';
 import { KeyDecoder } from '../tui/keys';
 import { renderMarkdown } from '../tui/markdown';
+import {
+  canSplitColumns,
+  composeColumns,
+  renderTaskPanel,
+  taskPanelBodyWidth,
+  taskPanelWidth
+} from '../tui/taskpanel';
 
 const ESC = String.fromCharCode(27);
 
@@ -307,4 +318,129 @@ test('markdown renders headings, lists, code and diffs inside the width', () => 
   assert.ok(/1\s+- old line/.test(text), text);
   assert.ok(/1\s+\+ new line/.test(text), text);
   assert.ok(text.includes('const value = 1;'));
+});
+
+/* ── sub-task panel ─────────────────────────────────────────────────── */
+
+function fakeTasks(): AgentRunView[] {
+  const startedAt = Date.now() - 5_000;
+  return [
+    { id: 'a', name: 'Context Scout', goal: 'Map relevant files.', status: 'completed', detail: 'Found 12 files.', chars: 2400, startedAt, endedAt: startedAt + 3_000 },
+    { id: 'b', name: 'Implementation Agent', goal: 'Design the change.', status: 'running', chars: 800, startedAt },
+    { id: 'c', name: 'Quality Agent', goal: 'Find edge cases.', status: 'failed', detail: 'model not found', startedAt, endedAt: startedAt + 200 },
+    { id: 'synthesis', name: 'Synthesis', goal: 'Merge results.', status: 'queued' }
+  ];
+}
+
+test('task panel rows are exactly the panel width, with and without colour', () => {
+  const width = taskPanelWidth(120);
+  for (const depth of ['none', 'truecolor'] as const) {
+    setColorDepth(depth);
+    const rows = renderTaskPanel(fakeTasks(), { width, tick: 4, maxRows: 20 });
+    assert.ok(rows.length > 1, 'panel should render a header and task rows');
+    for (const row of rows) {
+      assert.strictEqual(stringWidth(row), width, `${depth} row: ${JSON.stringify(row)}`);
+    }
+  }
+  setColorDepth('none');
+});
+
+test('task panel shrinks the blocks instead of hiding running sub-tasks', () => {
+  const tasks = fakeTasks();
+  const width = taskPanelWidth(100);
+  const tight = renderTaskPanel(tasks, { width, tick: 0, maxRows: 5 });
+
+  assert.ok(tight.length <= 5, `panel used ${tight.length} rows`);
+  /* One row per task plus the header: every task still has a line. */
+  assert.strictEqual(tight.length, tasks.length + 1);
+  for (const task of tasks) {
+    assert.ok(tight.some(row => row.includes(task.name)), `${task.name} missing from panel`);
+  }
+});
+
+test('task panel bar advances with the tick so progress reads as live', () => {
+  const running: AgentRunView[] = [
+    { id: 'b', name: 'Implementation Agent', goal: 'Design the change.', status: 'running', chars: 800, startedAt: Date.now() }
+  ];
+  const width = taskPanelWidth(120);
+  const first = renderTaskPanel(running, { width, tick: 0, maxRows: 10 })[2];
+  const later = renderTaskPanel(running, { width, tick: 5, maxRows: 10 })[2];
+  assert.notStrictEqual(first, later);
+  assert.strictEqual(stringWidth(first), stringWidth(later));
+});
+
+test('composeColumns pads the body column so the panel starts at a fixed column', () => {
+  const body = ['left', 'a much longer left line'];
+  const panel = ['P1', 'P2', 'P3'];
+  const lines = composeColumns(body, panel, 30, 2);
+
+  assert.strictEqual(lines.length, 3);
+  for (const line of lines) {
+    assert.strictEqual(line.indexOf('P'), 32);
+  }
+  /* Body lines wider than the column are never truncated away silently. */
+  assert.ok(lines[1].startsWith('a much longer left line'));
+});
+
+test('the split layout only kicks in when both columns fit', () => {
+  assert.ok(!canSplitColumns(60));
+  assert.ok(canSplitColumns(120));
+  assert.ok(taskPanelWidth(120) + taskPanelBodyWidth(120) < 120);
+});
+
+test('delegated runs publish live per-task progress, synthesis included', async () => {
+  /* A fake model that streams a few chunks per call, so the panel's inputs —
+     status, chars, timings — can be checked without Ollama. */
+  const client = {
+    async generate(params: { onToken?: (chunk: string, full: string) => void }): Promise<string> {
+      let full = '';
+      for (const chunk of ['alpha ', 'beta ', 'gamma']) {
+        full += chunk;
+        params.onToken?.(chunk, full);
+      }
+      return full;
+    }
+  } as unknown as ConstructorParameters<typeof MultiAgentService>[0];
+
+  const codeIndex = {
+    async buildPromptContext(): Promise<string> { return 'context'; }
+  } as unknown as ConstructorParameters<typeof MultiAgentService>[1];
+
+  const activity = {
+    begin: () => 'step',
+    update: () => undefined,
+    succeed: () => undefined,
+    fail: () => undefined,
+    cancel: () => undefined,
+    cancelRunning: () => undefined,
+    info: () => undefined,
+    run: async <T>(_label: string, task: (step: { update: (detail: string) => void }) => Promise<T>) =>
+      task({ update: () => undefined }),
+    reset: () => undefined,
+    snapshot: () => [],
+    hasRunningSteps: () => false
+  } as unknown as ConstructorParameters<typeof MultiAgentService>[2];
+
+  const snapshots: DelegatedAgentProgress[][] = [];
+  const service = new MultiAgentService(client, codeIndex, activity);
+  const result = await service.runDelegatedTask('add a right-hand task panel', agents => snapshots.push(agents));
+
+  /* The first snapshot lands before any model call, so the task list is
+     visible while the shared context is still being built. */
+  assert.ok(snapshots.length >= 2);
+  assert.deepStrictEqual(
+    snapshots[0].map(task => task.status),
+    ['queued', 'queued', 'queued', 'queued']
+  );
+  assert.strictEqual(snapshots[0][3].id, 'synthesis');
+
+  const final = snapshots[snapshots.length - 1];
+  assert.ok(final.every(task => task.status === 'completed'), 'every task should finish');
+  assert.ok(final.every(task => (task.chars ?? 0) > 0), 'every task should report streamed characters');
+  assert.ok(final.every(task => task.startedAt && task.endedAt), 'every task should be timed');
+
+  /* Synthesis is reported, never returned as an agent. */
+  assert.strictEqual(result.agents.length, 3);
+  assert.ok(!result.agents.some(agent => agent.id === 'synthesis'));
+  assert.strictEqual(result.synthesis, 'alpha beta gamma');
 });

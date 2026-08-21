@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 import { SecretVault } from './core/secretVault';
 
 const TOKEN_KEY_REGEX = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;

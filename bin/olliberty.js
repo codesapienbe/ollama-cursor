@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /* Olliberty CLI launcher. Keeps the published entry point stable while the
    compiled TypeScript lives under out/cli. */
 'use strict';

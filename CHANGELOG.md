@@ -6,11 +6,17 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+### Licensing
+
+- **Relicensed to GPL-3.0-or-later.** Olliberty was previously marked MIT (with an unfilled `[Your Name]` copyright placeholder). `LICENSE.txt` now carries the verbatim GNU GPL v3 text, `package.json` declares the `GPL-3.0-or-later` SPDX identifier, and every source file carries `SPDX-FileCopyrightText` / `SPDX-License-Identifier` headers. Contributions are accepted under the same terms.
+- **Ollama is consistently called the LLM server** in user-facing text — settings descriptions, README, install guidance, the CLI banner and `--help` — replacing the mixed "daemon" / "process" / "service" / "installation" wording.
+
 ### Olliberty CLI
 
 - **New `olliberty` terminal client.** A TUI built from the same engine as the plugin: plan-first by default, diff-before-write approvals, live activity feed, delegated sub-agents, sessions, notes, Graphify import, token vault, and the local-only network kill switch. `make install` (or `npm link`) puts it on your PATH; `npm run cli -- --help` runs it in place.
 - **Shared engine, not a fork.** The plan gate, edit-proposal contract, code index format, secret scrubber, conversation store, multi-agent runner, and Ollama client are the same modules the extension loads. Host-specific pieces were extracted into `src/main/core/` (`settingsContract`, `activityContract`, `codeIndexContract`, `editProposal`, `secretVault`, `ollamaInstall`) so both surfaces implement one contract instead of drifting apart.
 - **Shared code index.** `.olliberty/code-index.json` is written and read by both the IDE plugin and the CLI, so an index built in either surface is immediately useful in the other.
+- **Sub-task side panel.** While `/agents` runs, sub-tasks move into their own column on the right of the frame — one tinted block per task, each keeping its colour for the whole run, with a live spinner, elapsed time, streamed character count, and a progress bar that sweeps while the task is generating. The synthesis pass is listed as a task too, so the panel stays populated until the answer lands. Terminals narrower than 76 columns keep the stacked tree.
 - **Terminal rendering.** Markdown output is rendered in the terminal (headings, lists, tables, blockquotes, fenced code with syntax tinting), and diffs render as file panels with real line numbers, hunk headers, and tinted add/remove rows. Sub-agent fan-out renders as a live tree; the activity feed shows per-step durations while a turn runs.
 - **Composer.** Slash-command and argument completion (models, config keys, session ids, token keys, paths), `@path` file mentions, multi-line entry, prompt history, bracketed paste, and shell-style line editing. `Esc` interrupts a run, `Shift+Tab` toggles plan/auto.
 - **Non-interactive mode.** `olliberty "<prompt>"`, `-p`, `--json`, `--plain`, and the `index`, `models`, `doctor`, `sessions`, `changes`, `context`, `privacy`, `config` subcommands. `-y/--yes` opts into auto mode with automatic edit application for scripting; interactive sessions always show the diff first.

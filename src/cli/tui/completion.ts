@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Completion sources for the composer: slash commands, their argument
  *  values, and `@path` file mentions. Claude-Code-style: a popup above the
  *  input, Tab accepts, arrows move.                                      */

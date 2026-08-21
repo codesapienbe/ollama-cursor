@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Terminal renderer.
  *  Scrollback stays native: finished output is appended to stdout and never
  *  redrawn, while a small "frame" at the bottom (status + composer) is

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Status bar under the composer: workspace, branch, mode, model, and the
  *  pending-approval reminders. Gemini-CLI-style single line, with a second
  *  line only when something is waiting for the user.                     */

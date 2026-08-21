@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Filesystem-backed code index for the CLI.
  *  Reads and writes the very same `.olliberty/code-index.json` the IDE
  *  plugin uses, with the same ranking, previews, and exclude glob — so an

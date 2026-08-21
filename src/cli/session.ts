@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  The CLI turn engine.
  *  This is the terminal counterpart of the plugin's SharedChatViewProvider:
  *  the same plan gate, the same slash commands, the same scrubbing, the same
@@ -34,7 +36,10 @@ export interface ChatMessage {
   timestamp: number;
 }
 
-export type AgentRunView = Pick<DelegatedAgentProgress, 'id' | 'name' | 'goal' | 'status' | 'detail'>;
+export type AgentRunView = Pick<
+  DelegatedAgentProgress,
+  'id' | 'name' | 'goal' | 'status' | 'detail' | 'chars' | 'startedAt' | 'endedAt'
+>;
 
 export interface SessionState {
   generating: boolean;
@@ -694,7 +699,10 @@ export class AgentSession {
             name: agent.name,
             goal: agent.goal,
             status: agent.status,
-            detail: agent.detail
+            detail: agent.detail,
+            chars: agent.chars,
+            startedAt: agent.startedAt,
+            endedAt: agent.endedAt
           }));
           this.emit({ type: 'agents', agents: this.agentRuns });
         },

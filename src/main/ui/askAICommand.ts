@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  UI: simple Q&A command.
  *  - Shows InputBox → streams answer to timestamped .md file.
  *  - Keeps zero domain logic (delegates to OllamaClient).       */

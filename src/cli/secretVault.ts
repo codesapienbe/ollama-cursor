@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  File-backed secret vault for the CLI.
  *
  *  Honest limitation: the IDE plugin stores tokens in the OS keychain via

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 const MASK = '******';
 const SECRET_KEY_NAME = /(token|secret|api[_-]?key|password|passwd|auth|credential|bearer)/i;
 

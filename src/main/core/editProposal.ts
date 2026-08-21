@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Host-agnostic file-edit proposal logic: prompt construction, strict JSON
  *  parsing, path safety, and chat rendering. The IDE plugin applies the
  *  result through the workspace filesystem, the CLI through node:fs, but

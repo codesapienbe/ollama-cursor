@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  CLI file editing: generate a proposal, render the diffs in the terminal,
  *  and write only after an explicit approval. Prompt, JSON contract, path
  *  safety, and chat formatting come from core/editProposal, so the CLI and

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 import { OllamaClient } from '../client';
 import { DEFAULT_MODEL, isReasoningEffort } from '../core/settingsContract';
 

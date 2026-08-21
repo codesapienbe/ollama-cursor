@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Live status blocks: the activity feed and the delegated sub-agent tree.
  *  These are the moving parts of the frame, repainted on every tick while a
  *  run is in flight — the CLI's version of the plugin's activity panel and

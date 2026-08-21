@@ -2,7 +2,7 @@
 
 A JetBrains Platform plugin that mirrors the VS Code / Cursor extension in this
 repository: a chat tool window, an "Ask AI" action, and OS-aware install help,
-all talking to a locally running [Ollama](https://ollama.com) daemon.
+all talking to a locally running [Ollama](https://ollama.com) LLM server.
 
 This is a separate codebase from the VS Code extension at the repository root —
 IntelliJ IDEA cannot run VS Code extensions, so this plugin is built on the

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Tiny glob matcher for the exclude patterns shared with the IDE settings
  *  (`**​/{.git,node_modules,…}/**`). Supports `**`, `*`, `?`, `{a,b}` and
  *  character classes against POSIX-style relative paths.                  */

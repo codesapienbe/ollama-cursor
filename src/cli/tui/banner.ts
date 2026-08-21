@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  The wordmark shown on start-up: a gradient block logo with the same
  *  left-to-right colour sweep the Gemini CLI uses, plus a compact variant
  *  for narrow terminals.                                                */
@@ -74,7 +76,7 @@ export function renderBanner(options: BannerOptions): string[] {
 
   lines.push('');
   lines.push(
-    `${fg(palette.muted, 'Local, private AI coding agent powered by Ollama')}  ${fg(palette.faint, `v${options.version}`)}`
+    `${fg(palette.muted, 'Local, private AI coding agent on your Ollama LLM server')}  ${fg(palette.faint, `v${options.version}`)}`
   );
   lines.push('');
   lines.push(`${fg(palette.faint, 'workspace')} ${fg(palette.text, options.workspace)}`);

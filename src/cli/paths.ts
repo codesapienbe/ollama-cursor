@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Yilmaz Mustafa
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*  Where the CLI keeps its state, and how it decides what "the project" is.
  *  Project-scoped state (`.olliberty/`) is shared with the IDE plugin; user
  *  state (`~/.olliberty/`) is the CLI's equivalent of the extension's global
