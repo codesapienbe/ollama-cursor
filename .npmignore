@@ -1,0 +1,23 @@
+# What the npm tarball is for: the `olliberty` CLI plus the compiled modules it
+# shares with the extension. The VSIX has its own list in .vscodeignore — vsce
+# refuses to run when a "files" property competes with that file, so the two
+# packagers each get their own ignore list.
+src/
+intellij-plugin/
+scripts/
+media/
+out/cli/tests/
+**/*.map
+*.vsix
+dist/
+.vscode/
+.vscode-test/
+.vscode-test.mjs
+eslint.config.mjs
+tsconfig.json
+tsconfig.cli.json
+Makefile
+setup.sh
+vsc-extension-quickstart.md
+.olliberty/
+.github/

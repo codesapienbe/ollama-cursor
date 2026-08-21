@@ -1,11 +1,10 @@
-/*  Live activity reporting for the IDE host.
- *  Single Responsibility: record every step Olliberty takes and
- *  broadcast it so the chat webview and the output channel can
- *  show the user exactly what is happening in the background.
- *  The step shape and formatting helpers are shared with the CLI
- *  through core/activityContract.                                */
+/*  CLI activity reporting.
+ *  Same step stream the IDE shows in its feed and output channel: the
+ *  terminal paints it live, and every line is mirrored to a log file so
+ *  `/activity` can point at something durable.                          */
 
-import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import {
   ActivitySink,
   ActivityStatus,
@@ -14,20 +13,23 @@ import {
   MAX_RETAINED_STEPS,
   compactDetail,
   formatDuration
-} from './core/activityContract';
+} from '../main/core/activityContract';
 
-export { formatDuration };
-export type { ActivitySink, ActivityStatus, ActivityStep };
+export type ActivityListener = (steps: ActivityStep[]) => void;
 
-export class ActivityReporter implements ActivitySink {
+export class CliActivityReporter implements ActivitySink {
   private steps: ActivityStep[] = [];
   private counter = 0;
-  private readonly emitter = new vscode.EventEmitter<ActivityStep[]>();
-  private readonly output = vscode.window.createOutputChannel('Olliberty');
+  private readonly listeners = new Set<ActivityListener>();
+  private logStream?: fs.WriteStream;
 
-  readonly onDidChange = this.emitter.event;
+  constructor(private readonly logFilePath: string) {}
 
-  /** Start a step that stays "running" until succeed/fail is called. */
+  onDidChange(listener: ActivityListener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
   begin(label: string, detail = ''): string {
     this.counter += 1;
     const id = `step-${this.counter}`;
@@ -42,7 +44,6 @@ export class ActivityReporter implements ActivitySink {
     return id;
   }
 
-  /** Replace the detail line of a running step without ending it. */
   update(id: string, detail: string): void {
     const step = this.steps.find(entry => entry.id === id);
     if (!step) {
@@ -64,7 +65,6 @@ export class ActivityReporter implements ActivitySink {
     this.end(id, 'cancelled', detail);
   }
 
-  /** Close out every still-running step when the user interrupts a run. */
   cancelRunning(detail = 'stopped by user'): void {
     for (const step of this.steps) {
       if (step.status === 'running') {
@@ -73,7 +73,6 @@ export class ActivityReporter implements ActivitySink {
     }
   }
 
-  /** Record a one-shot event that has no duration. */
   info(label: string, detail = ''): void {
     this.counter += 1;
     this.push({
@@ -87,7 +86,6 @@ export class ActivityReporter implements ActivitySink {
     this.write('•', label, detail);
   }
 
-  /** Wrap an async unit of work so it always reports a terminal state. */
   async run<T>(label: string, task: (step: ActivityTaskHandle) => Promise<T>, detail = ''): Promise<T> {
     const id = this.begin(label, detail);
     try {
@@ -100,7 +98,6 @@ export class ActivityReporter implements ActivitySink {
     }
   }
 
-  /** Clear the feed at the start of a new turn so it reads as one run. */
   reset(): void {
     this.steps = [];
     this.emit();
@@ -114,13 +111,14 @@ export class ActivityReporter implements ActivitySink {
     return this.steps.some(step => step.status === 'running');
   }
 
-  showOutput(): void {
-    this.output.show(true);
+  logPath(): string {
+    return this.logFilePath;
   }
 
   dispose(): void {
-    this.emitter.dispose();
-    this.output.dispose();
+    this.listeners.clear();
+    this.logStream?.end();
+    this.logStream = undefined;
   }
 
   private end(id: string, status: Exclude<ActivityStatus, 'running' | 'info'>, detail?: string): void {
@@ -149,12 +147,29 @@ export class ActivityReporter implements ActivitySink {
   }
 
   private emit(): void {
-    this.emitter.fire(this.snapshot());
+    const snapshot = this.snapshot();
+    for (const listener of this.listeners) {
+      listener(snapshot);
+    }
   }
 
   private write(marker: string, label: string, detail: string): void {
     const timestamp = new Date().toISOString().slice(11, 23);
     const suffix = detail ? ` — ${compactDetail(detail)}` : '';
-    this.output.appendLine(`[${timestamp}] ${marker} ${label}${suffix}`);
+    this.appendLine(`[${timestamp}] ${marker} ${label}${suffix}`);
+  }
+
+  private appendLine(line: string): void {
+    try {
+      if (!this.logStream) {
+        fs.mkdirSync(path.dirname(this.logFilePath), { recursive: true });
+        this.logStream = fs.createWriteStream(this.logFilePath, { flags: 'a' });
+        /* A vanished log directory must never crash a run. */
+        this.logStream.on('error', () => { this.logStream = undefined; });
+      }
+      this.logStream.write(`${line}\n`);
+    } catch {
+      // Logging is best-effort; the live feed is the primary surface.
+    }
   }
 }

@@ -1,6 +1,6 @@
-import { ActivityReporter } from './activity';
+import { ActivitySink } from './core/activityContract';
 import { OllamaClient } from './client';
-import { CodeIndexStore } from './codeIndex';
+import { CodeContextProvider } from './core/codeIndexContract';
 
 export type DelegatedAgentStatus = 'queued' | 'running' | 'completed' | 'failed';
 
@@ -63,8 +63,8 @@ const DEFAULT_BLUEPRINTS: AgentBlueprint[] = [
 export class MultiAgentService {
   constructor(
     private readonly client: OllamaClient,
-    private readonly codeIndex: CodeIndexStore,
-    private readonly activity: ActivityReporter
+    private readonly codeIndex: CodeContextProvider,
+    private readonly activity: ActivitySink
   ) {}
 
   async runDelegatedTask(

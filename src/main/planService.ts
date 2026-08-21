@@ -2,9 +2,9 @@
  *  Every request in `plan` mode is turned into an explicit, reviewable
  *  plan before any answer is produced or any file is touched.        */
 
-import { ActivityReporter } from './activity';
+import { ActivitySink } from './core/activityContract';
 import { OllamaClient } from './client';
-import { CodeIndexStore } from './codeIndex';
+import { CodeContextProvider } from './core/codeIndexContract';
 
 export interface PlanStep {
   title: string;
@@ -37,8 +37,8 @@ const MAX_STEPS = 12;
 export class PlanService {
   constructor(
     private readonly client: OllamaClient,
-    private readonly codeIndex: CodeIndexStore,
-    private readonly activity: ActivityReporter
+    private readonly codeIndex: CodeContextProvider,
+    private readonly activity: ActivitySink
   ) {}
 
   async createPlan(goal: string, extraContext = '', signal?: AbortSignal): Promise<Plan> {
@@ -106,7 +106,7 @@ export class PlanService {
       lines.push('', '**Risks and checks**', ...plan.risks.map(risk => `- ${risk}`));
     }
 
-    lines.push('', 'Approve with **Accept plan** (or `/accept`), or discard with `/discard`.');
+    lines.push('', 'Approve with `/accept` (or the **Accept plan** button in the IDE), or discard with `/discard`.');
     return lines.join('\n');
   }
 

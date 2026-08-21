@@ -5,6 +5,7 @@
  *  - Keeps zero business logic.
  *  ────────────────────────────────────────────────────────────── */
 
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { Settings }          from './settings';
 import { OllamaClient }      from './client';
@@ -33,7 +34,10 @@ export class Container {
   readonly tokenStore: TokenStore;
 
   constructor(context: vscode.ExtensionContext) {
-    this.conversationStore = new ConversationStore(context);
+    this.conversationStore = new ConversationStore(
+      context.globalStorageUri.fsPath,
+      path.join(context.extensionUri.fsPath, 'node_modules', 'sql.js', 'dist')
+    );
     this.tokenStore = new TokenStore(context.secrets);
   }
 }

@@ -1,7 +1,7 @@
 {
   "name": "olliberty",
   "displayName": "Olliberty",
-  "description": "Local, private AI coding assistant powered by Ollama — for VS Code, Cursor, and IntelliJ IDEA.",
+  "description": "Local, private AI coding assistant powered by Ollama — for VS Code, Cursor, IntelliJ IDEA, and the terminal.",
   "version": "0.1.7",
   "publisher": "codesapienbe",
   "repository": {
@@ -9,7 +9,8 @@
     "url": "https://github.com/codesapienbe/ollama-cursor.git"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.85.0",
+    "node": ">=18"
   },
   "categories": [
     "Other"
@@ -286,11 +287,16 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
+    "compile": "npm run compile:extension && npm run compile:cli",
+    "compile:extension": "tsc -p ./",
+    "compile:cli": "tsc -p ./tsconfig.cli.json",
+    "cli": "node ./bin/olliberty.js",
     "watch": "tsc -watch -p ./",
+    "watch:cli": "tsc -watch -p ./tsconfig.cli.json",
     "pretest": "npm run compile && npm run lint",
-    "lint": "eslint src/main",
-    "test": "vscode-test"
+    "lint": "eslint src/main src/cli",
+    "test": "vscode-test",
+    "test:cli": "npm run compile:cli && node --test \"out/cli/tests/*.test.js\""
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
@@ -305,5 +311,8 @@
   },
   "dependencies": {
     "sql.js": "^1.14.1"
+  },
+  "bin": {
+    "olliberty": "./bin/olliberty.js"
   }
 }

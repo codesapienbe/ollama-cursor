@@ -1,10 +1,31 @@
 /*  Minimal unified diff generator.
- *  Used to show every proposed and applied change inline in the chat,
- *  so the user never has to guess what the agent touched.           */
+ *  Used to show every proposed and applied change inline in the chat, so the
+ *  user never has to guess what the agent touched. The structured hunks are
+ *  what the CLI paints as a diff panel; the unified text is what the webview
+ *  renders in a fenced block.                                              */
 
 export interface DiffStats {
   additions: number;
   removals: number;
+}
+
+export type DiffLineType = 'equal' | 'add' | 'remove';
+
+export interface DiffLine {
+  type: DiffLineType;
+  text: string;
+  /** 1-based line number in the original file, when the line exists there. */
+  oldLine?: number;
+  /** 1-based line number in the new file, when the line exists there. */
+  newLine?: number;
+}
+
+export interface DiffHunk {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: DiffLine[];
 }
 
 export interface FileDiff extends DiffStats {
@@ -12,12 +33,13 @@ export interface FileDiff extends DiffStats {
   isNewFile: boolean;
   unified: string;
   truncated: boolean;
+  hunks: DiffHunk[];
 }
 
 const CONTEXT_LINES = 3;
 const MAX_DIFF_LINES = 400;
 
-type Op = { type: 'equal' | 'add' | 'remove'; line: string };
+type Op = { type: DiffLineType; line: string };
 
 export function computeFileDiff(filePath: string, before: string, after: string): FileDiff {
   const beforeLines = splitLines(before);
@@ -26,15 +48,16 @@ export function computeFileDiff(filePath: string, before: string, after: string)
 
   const additions = ops.filter(op => op.type === 'add').length;
   const removals = ops.filter(op => op.type === 'remove').length;
-  const rendered = renderUnified(ops);
+  const { hunks, truncated } = buildHunks(ops);
 
   return {
     filePath,
     isNewFile: before.length === 0,
     additions,
     removals,
-    unified: rendered.text,
-    truncated: rendered.truncated
+    unified: renderUnified(hunks),
+    truncated,
+    hunks
   };
 }
 
@@ -129,43 +152,101 @@ function diffLines(before: string[], after: string[]): Op[] {
   return ops;
 }
 
-/** Emit only changed regions plus a few lines of surrounding context. */
-function renderUnified(ops: Op[]): { text: string; truncated: boolean } {
-  const changedIndexes = ops
-    .map((op, index) => (op.type === 'equal' ? -1 : index))
+/** Group changed regions (plus context) into hunks with real line numbers. */
+function buildHunks(ops: Op[]): { hunks: DiffHunk[]; truncated: boolean } {
+  const numbered: DiffLine[] = [];
+  let oldLine = 0;
+  let newLine = 0;
+
+  for (const op of ops) {
+    if (op.type === 'equal') {
+      oldLine += 1;
+      newLine += 1;
+      numbered.push({ type: 'equal', text: op.line, oldLine, newLine });
+      continue;
+    }
+    if (op.type === 'remove') {
+      oldLine += 1;
+      numbered.push({ type: 'remove', text: op.line, oldLine });
+      continue;
+    }
+    newLine += 1;
+    numbered.push({ type: 'add', text: op.line, newLine });
+  }
+
+  const changedIndexes = numbered
+    .map((line, index) => (line.type === 'equal' ? -1 : index))
     .filter(index => index !== -1);
 
   if (!changedIndexes.length) {
-    return { text: '', truncated: false };
+    return { hunks: [], truncated: false };
   }
 
   const keep = new Set<number>();
   for (const index of changedIndexes) {
     for (let offset = -CONTEXT_LINES; offset <= CONTEXT_LINES; offset += 1) {
       const candidate = index + offset;
-      if (candidate >= 0 && candidate < ops.length) {
+      if (candidate >= 0 && candidate < numbered.length) {
         keep.add(candidate);
       }
     }
   }
 
-  const output: string[] = [];
-  let truncated = false;
+  const hunks: DiffHunk[] = [];
+  let current: DiffLine[] = [];
   let previousIndex = -1;
+  let emitted = 0;
+  let truncated = false;
+
+  const flush = () => {
+    if (!current.length) {
+      return;
+    }
+    hunks.push(toHunk(current));
+    current = [];
+  };
 
   for (const index of Array.from(keep).sort((left, right) => left - right)) {
-    if (output.length >= MAX_DIFF_LINES) {
+    if (emitted >= MAX_DIFF_LINES) {
       truncated = true;
       break;
     }
     if (previousIndex !== -1 && index > previousIndex + 1) {
-      output.push('@@');
+      flush();
     }
-    const op = ops[index];
-    const marker = op.type === 'add' ? '+' : op.type === 'remove' ? '-' : ' ';
-    output.push(`${marker}${op.line}`);
+    current.push(numbered[index]);
+    emitted += 1;
     previousIndex = index;
   }
+  flush();
 
-  return { text: output.join('\n'), truncated };
+  return { hunks, truncated };
+}
+
+function toHunk(lines: DiffLine[]): DiffHunk {
+  const oldNumbers = lines.filter(line => line.oldLine !== undefined).map(line => line.oldLine as number);
+  const newNumbers = lines.filter(line => line.newLine !== undefined).map(line => line.newLine as number);
+
+  return {
+    oldStart: oldNumbers.length ? oldNumbers[0] : 0,
+    oldLines: oldNumbers.length,
+    newStart: newNumbers.length ? newNumbers[0] : 0,
+    newLines: newNumbers.length,
+    lines
+  };
+}
+
+/** Standard unified text, so any renderer that knows diffs can read it. */
+function renderUnified(hunks: DiffHunk[]): string {
+  const output: string[] = [];
+
+  for (const hunk of hunks) {
+    output.push(`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`);
+    for (const line of hunk.lines) {
+      const marker = line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' ';
+      output.push(`${marker}${line.text}`);
+    }
+  }
+
+  return output.join('\n');
 }
