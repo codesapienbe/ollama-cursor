@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from 'crypto';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import * as vscode from 'vscode';
 import initSqlJs = require('sql.js');
 
 type SqlPrimitive = string | number | null;
@@ -137,9 +136,11 @@ export class ConversationStore {
   private mutationQueue: Promise<void> = Promise.resolve();
   private db?: SqlJsDatabase;
 
-  constructor(private readonly context: vscode.ExtensionContext) {
-    this.databasePath = path.join(this.context.globalStorageUri.fsPath, DATABASE_FILE_NAME);
-    this.wasmDirectory = path.join(this.context.extensionUri.fsPath, 'node_modules', 'sql.js', 'dist');
+  /** Both hosts pass explicit paths: the extension its global storage and
+   *  bundled sql.js, the CLI its user data directory and resolved sql.js.  */
+  constructor(private readonly storageDirectory: string, wasmDirectory: string) {
+    this.databasePath = path.join(storageDirectory, DATABASE_FILE_NAME);
+    this.wasmDirectory = wasmDirectory;
   }
 
   async getActiveConversation(): Promise<ActiveConversation> {
@@ -530,7 +531,7 @@ export class ConversationStore {
   }
 
   private async initialize(): Promise<void> {
-    await fs.mkdir(this.context.globalStorageUri.fsPath, { recursive: true });
+    await fs.mkdir(this.storageDirectory, { recursive: true });
 
     const SQL = await initSqlJs({
       locateFile: (file: string) => path.join(this.wasmDirectory, file)

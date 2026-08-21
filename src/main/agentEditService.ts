@@ -1,43 +1,28 @@
+/*  IDE-side file editing: generate a proposal, show diffs in the editor,
+ *  then write only after an explicit approval. The prompt contract, JSON
+ *  parsing, path safety, and chat rendering are shared with the CLI via
+ *  core/editProposal so both hosts behave identically.                  */
+
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { ActivityReporter } from './activity';
+import { ActivitySink } from './core/activityContract';
 import { OllamaClient } from './client';
-import { CodeIndexStore } from './codeIndex';
-import { FileDiff, computeFileDiff, formatDiffForChat } from './diff';
+import { CodeContextProvider } from './core/codeIndexContract';
+import {
+  AppliedChange,
+  EditProposal,
+  MAX_EDITOR_CONTEXT_CHARS,
+  ProposedFileEdit,
+  buildEditPrompt,
+  formatAppliedChangesForChat,
+  formatProposalForChat,
+  parseProposalResponse
+} from './core/editProposal';
+import { FileDiff, computeFileDiff } from './diff';
 import { getCurrentWorkspaceFolder } from './workspaceContext';
 
-export interface ProposedFileEdit {
-  filePath: string;
-  newContent: string;
-}
+export type { AppliedChange, EditProposal, ProposedFileEdit };
 
-export interface EditProposal {
-  summary: string;
-  edits: ProposedFileEdit[];
-  rawResponse: string;
-}
-
-export interface AppliedChange {
-  filePath: string;
-  appliedAt: number;
-  isNewFile: boolean;
-  additions: number;
-  removals: number;
-  previousContent: string;
-  newContent: string;
-}
-
-interface ParsedEditProposal {
-  summary?: string;
-  edits?: unknown;
-}
-
-interface ParsedFileEdit {
-  filePath?: unknown;
-  newContent?: unknown;
-}
-
-const MAX_EDITOR_CONTEXT_CHARS = 14_000;
 const EDIT_PREVIEW_SCHEME = 'olliberty-edit-preview';
 const MAX_STORED_PREVIEW_DOCS = 240;
 
@@ -52,8 +37,8 @@ export class AgentEditService {
 
   constructor(
     private readonly client: OllamaClient,
-    private readonly codeIndex: CodeIndexStore,
-    private readonly activity: ActivityReporter
+    private readonly codeIndex: CodeContextProvider,
+    private readonly activity: ActivitySink
   ) {}
 
   registerPreviewContentProvider(): vscode.Disposable {
@@ -79,27 +64,13 @@ export class AgentEditService {
       }
     );
 
-    const prompt = [
-      'You are a local coding agent running inside VS Code.',
-      'Create a safe file edit plan for the instruction below.',
-      '',
-      'Return ONLY valid JSON (no markdown, no explanation) in this exact shape:',
-      '{"summary":"short summary","edits":[{"filePath":"relative/path/from/workspace","newContent":"full file content"}]}',
-      '',
-      'Rules:',
-      '- Use workspace-relative file paths.',
-      '- Never use absolute paths.',
-      '- Never include ".." path traversal.',
-      '- Include complete file content for each edited file.',
-      '- Keep edits minimal and directly related to the instruction.',
-      '',
-      `Workspace root: ${workspaceFolder.uri.fsPath}`,
-      '',
+    const prompt = buildEditPrompt({
+      host: 'VS Code',
+      workspaceRoot: workspaceFolder.uri.fsPath,
       editorContext,
-      indexedContext ? `Indexed workspace context:\n${indexedContext}` : '',
-      '',
-      `Instruction:\n${instruction}`
-    ].filter(Boolean).join('\n');
+      indexedContext,
+      instruction
+    });
 
     const response = await this.activity.run(
       'Generating edit proposal',
@@ -113,7 +84,7 @@ export class AgentEditService {
       `model: ${this.client.getCurrentModel()}`
     );
 
-    const proposal = this.parseProposal(response);
+    const proposal = parseProposalResponse(response);
     const summary = proposal.summary?.trim() || `Proposed ${proposal.edits.length} file edit(s).`;
     return {
       summary,
@@ -258,108 +229,11 @@ export class AgentEditService {
   /** Full proposal rendering: summary, per-file stats, and inline diffs. */
   async formatProposalForChat(proposal: EditProposal): Promise<string> {
     const diffs = await this.buildProposalDiffs(proposal);
-    const totalAdditions = diffs.reduce((sum, diff) => sum + diff.additions, 0);
-    const totalRemovals = diffs.reduce((sum, diff) => sum + diff.removals, 0);
-
-    return [
-      `🛠️ **${proposal.summary}**`,
-      `${diffs.length} file(s) · +${totalAdditions} −${totalRemovals}`,
-      '',
-      ...diffs.map(diff => formatDiffForChat(diff, 'Update'))
-    ].join('\n');
+    return formatProposalForChat(proposal.summary, diffs);
   }
 
   formatAppliedChangesForChat(changes: AppliedChange[]): string {
-    const totalAdditions = changes.reduce((sum, change) => sum + change.additions, 0);
-    const totalRemovals = changes.reduce((sum, change) => sum + change.removals, 0);
-
-    const blocks = changes.map(change =>
-      formatDiffForChat(
-        computeFileDiff(change.filePath, change.previousContent, change.newContent),
-        'Applied'
-      )
-    );
-
-    return [
-      `✅ **Applied ${changes.length} file change(s)** · +${totalAdditions} −${totalRemovals}`,
-      '',
-      ...blocks
-    ].join('\n');
-  }
-
-  private parseProposal(rawResponse: string): { summary?: string; edits: ProposedFileEdit[] } {
-    const jsonText = this.extractJson(rawResponse);
-    let parsed: ParsedEditProposal;
-
-    try {
-      parsed = JSON.parse(jsonText) as ParsedEditProposal;
-    } catch {
-      throw new Error('Edit generation failed: model returned invalid JSON. Try a more specific /edit instruction.');
-    }
-
-    const rawEdits = Array.isArray(parsed.edits) ? parsed.edits : [];
-    const edits = rawEdits
-      .map(item => this.toFileEdit(item))
-      .filter((edit): edit is ProposedFileEdit => edit !== null);
-
-    if (!edits.length) {
-      throw new Error('Edit generation failed: no valid file edits were returned.');
-    }
-
-    return {
-      summary: typeof parsed.summary === 'string' ? parsed.summary : undefined,
-      edits
-    };
-  }
-
-  private toFileEdit(candidate: unknown): ProposedFileEdit | null {
-    if (!candidate || typeof candidate !== 'object') {
-      return null;
-    }
-
-    const raw = candidate as ParsedFileEdit;
-    if (typeof raw.filePath !== 'string' || typeof raw.newContent !== 'string') {
-      return null;
-    }
-
-    const normalizedPath = this.normalizePath(raw.filePath);
-    return {
-      filePath: normalizedPath,
-      newContent: raw.newContent
-    };
-  }
-
-  private normalizePath(inputPath: string): string {
-    const normalized = inputPath.trim().replace(/\\/g, '/').replace(/^\.\/+/, '');
-    if (!normalized) {
-      throw new Error('Edit generation failed: empty file path returned.');
-    }
-
-    if (path.isAbsolute(normalized)) {
-      throw new Error(`Edit generation failed: absolute path '${inputPath}' is not allowed.`);
-    }
-
-    const segments = normalized.split('/');
-    if (segments.some(segment => segment.length === 0 || segment === '.' || segment === '..')) {
-      throw new Error(`Edit generation failed: unsafe file path '${inputPath}'.`);
-    }
-
-    return segments.join('/');
-  }
-
-  private extractJson(rawResponse: string): string {
-    const fencedMatch = rawResponse.match(/```json\s*([\s\S]*?)```/i);
-    if (fencedMatch?.[1]) {
-      return fencedMatch[1].trim();
-    }
-
-    const firstBrace = rawResponse.indexOf('{');
-    const lastBrace = rawResponse.lastIndexOf('}');
-    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-      throw new Error('Edit generation failed: model did not return a JSON payload.');
-    }
-
-    return rawResponse.slice(firstBrace, lastBrace + 1).trim();
+    return formatAppliedChangesForChat(changes);
   }
 
   private buildEditorContext(editor: vscode.TextEditor | undefined): string {

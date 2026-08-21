@@ -4,7 +4,7 @@
 
 import * as https from 'https';
 import * as http from 'http';
-import { ReasoningEffort, Settings } from './settings';
+import { OllibertySettings, ReasoningEffort } from './core/settingsContract';
 
 export interface GenerateParams {
   prompt: string;
@@ -28,9 +28,9 @@ export function isAbortedError(error: unknown): boolean {
 }
 
 export class OllamaClient {
-  private readonly settings: Settings;
+  private readonly settings: OllibertySettings;
 
-  constructor(settings: Settings) {
+  constructor(settings: OllibertySettings) {
     this.settings = settings;
   }
 

@@ -6,6 +6,28 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+### Olliberty CLI
+
+- **New `olliberty` terminal client.** A TUI built from the same engine as the plugin: plan-first by default, diff-before-write approvals, live activity feed, delegated sub-agents, sessions, notes, Graphify import, token vault, and the local-only network kill switch. `make install` (or `npm link`) puts it on your PATH; `npm run cli -- --help` runs it in place.
+- **Shared engine, not a fork.** The plan gate, edit-proposal contract, code index format, secret scrubber, conversation store, multi-agent runner, and Ollama client are the same modules the extension loads. Host-specific pieces were extracted into `src/main/core/` (`settingsContract`, `activityContract`, `codeIndexContract`, `editProposal`, `secretVault`, `ollamaInstall`) so both surfaces implement one contract instead of drifting apart.
+- **Shared code index.** `.olliberty/code-index.json` is written and read by both the IDE plugin and the CLI, so an index built in either surface is immediately useful in the other.
+- **Terminal rendering.** Markdown output is rendered in the terminal (headings, lists, tables, blockquotes, fenced code with syntax tinting), and diffs render as file panels with real line numbers, hunk headers, and tinted add/remove rows. Sub-agent fan-out renders as a live tree; the activity feed shows per-step durations while a turn runs.
+- **Composer.** Slash-command and argument completion (models, config keys, session ids, token keys, paths), `@path` file mentions, multi-line entry, prompt history, bracketed paste, and shell-style line editing. `Esc` interrupts a run, `Shift+Tab` toggles plan/auto.
+- **Non-interactive mode.** `olliberty "<prompt>"`, `-p`, `--json`, `--plain`, and the `index`, `models`, `doctor`, `sessions`, `changes`, `context`, `privacy`, `config` subcommands. `-y/--yes` opts into auto mode with automatic edit application for scripting; interactive sessions always show the diff first.
+- **Layered configuration.** Defaults < `~/.olliberty/config.json` < `<workspace>/.olliberty/config.json` < environment (`OLLIBERTY_URL`/`OLLAMA_HOST`, `OLLIBERTY_MODEL`, `OLLIBERTY_MODE`, `OLLIBERTY_EFFORT`) < flags, using the same keys as the VS Code settings. `/config` shows the effective value and which layer it came from. The request timeout is now configurable (`timeoutMs`) instead of hard-coded.
+- **CLI-only commands:** `/diff <file>`, `/attach`, `/detach`, `/context`, `/config`, `/doctor`, `/clear`, `/exit`.
+- **Known difference:** `/token` secrets are stored in `~/.olliberty/secrets.json` with `0600` permissions and are not encrypted at rest — a terminal has no OS keychain equivalent to VS Code's `SecretStorage`. `/privacy` and `/token` state this explicitly.
+- Zero new runtime dependencies: the terminal UI (colour degradation, width measurement, wrapping, key decoding, rendering) is hand-rolled.
+- **`make install` now installs, not just builds** — all three surfaces in one shot: the VSIX into whichever of VS Code and Cursor is present (missing editors are skipped instead of failing the run), the IntelliJ plugin unpacked into every detected IntelliJ IDEA plugins directory (`JETBRAINS_PLUGIN_DIR` overrides the search; manual instructions are printed when no IDE is found), and the `olliberty` CLI linked onto PATH. New `install-intellij` / `uninstall-intellij` targets, and `make uninstall` reverses all three.
+- **`make bundle` produces all three installables** in `dist/`: the `.vsix`, the IntelliJ plugin `.zip`, and an npm tarball of the CLI (`npm install -g dist/olliberty-<version>.tgz`), with the install command for each printed at the end.
+
+### Changed
+
+- `computeFileDiff` now returns structured hunks and emits standard `@@ -a,b +c,d @@` headers instead of bare `@@` separators, which is what lets both the webview and the terminal show real line numbers.
+- `ConversationStore` takes explicit storage and sql.js paths instead of a VS Code `ExtensionContext`, and `TokenStore` takes a `SecretVault` port (`vscode.SecretStorage` satisfies it unchanged).
+- Packaging lists are split per packager: `.vscodeignore` governs the VSIX and a new `.npmignore` governs the npm tarball. A `files` property in `package.json` cannot be used for the latter — `vsce` refuses to package when both it and `.vscodeignore` exist.
+- Added CLI unit tests (`npm run test:cli`) covering key decoding, the line editor, display width/wrapping, glob pruning, configuration layering, diff hunks, and markdown rendering.
+
 ### Visibility and plan-first execution
 
 - **Plan-first mode is now the default.** New `olliberty.mode` setting (`plan` | `auto`, default `plan`). In `plan` mode every request produces a numbered plan — steps, expected files, risks — and nothing runs until you press **Accept plan** (`/accept`) or discard it (`/discard`). Plans that touch files still require a separate diff approval before anything is written; `olliberty.autoApplyEdits` is ignored in this mode.

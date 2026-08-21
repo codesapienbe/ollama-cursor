@@ -1,45 +1,38 @@
-import * as path from 'path';
+/*  Local workspace code index for the IDE host.
+ *  Writes `.olliberty/code-index.json` in the workspace root — the same
+ *  document the CLI reads and writes, so an index built in either surface
+ *  is immediately usable by the other. Ranking/preview logic is shared
+ *  through core/codeIndexContract.                                        */
+
 import * as vscode from 'vscode';
-import { Settings } from './settings';
+import {
+  CodeContextProvider,
+  CodeIndexBuildResult,
+  CodeIndexDocument,
+  CodeIndexEntry,
+  CodeIndexStatus,
+  INDEX_DIRECTORY,
+  INDEX_FILE_NAME,
+  INDEX_VERSION,
+  filterByScope,
+  formatContextEntries,
+  guessLanguage,
+  isBinaryContent,
+  isValidIndexDocument,
+  rankEntries,
+  toPreview
+} from './core/codeIndexContract';
+import { OllibertySettings } from './core/settingsContract';
 import { getCurrentWorkspaceFolder } from './workspaceContext';
 
-interface CodeIndexEntry {
-  relativePath: string;
-  language: string;
-  size: number;
-  mtime: number;
-  preview: string;
-}
+export type { CodeIndexBuildResult, CodeIndexStatus };
 
-interface CodeIndexDocument {
-  version: number;
-  generatedAt: number;
-  workspaceRoot: string;
-  fileCount: number;
-  files: CodeIndexEntry[];
-}
-
-export interface CodeIndexStatus {
-  enabled: boolean;
-  exists: boolean;
-  generatedAt: number;
-  fileCount: number;
-}
-
-export interface CodeIndexBuildResult {
-  indexedFiles: number;
-  skippedFiles: number;
-  generatedAt: number;
-}
-
-const INDEX_VERSION = 1;
-
-export class CodeIndexStore {
+export class CodeIndexStore implements CodeContextProvider {
   private readonly encoder = new TextEncoder();
   private readonly decoder = new TextDecoder('utf-8');
   private rebuildPromise?: Promise<CodeIndexBuildResult>;
 
-  constructor(private readonly settings: Settings) {}
+  constructor(private readonly settings: OllibertySettings) {}
 
   async ensureIndexed(): Promise<void> {
     if (!this.settings.autoIndexWorkspace) {
@@ -95,27 +88,8 @@ export class CodeIndexStore {
       return '';
     }
 
-    const tokens = this.tokenize(query);
-    if (!tokens.length) {
-      return '';
-    }
-
-    const scopedFiles = this.filterByScope(document.files, scopePrefix);
-    if (!scopedFiles.length) {
-      return '';
-    }
-
-    const ranked = scopedFiles
-      .map(file => ({ file, score: this.scoreEntry(file, tokens) }))
-      .filter(item => item.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, maxResults);
-
-    if (!ranked.length) {
-      return '';
-    }
-
-    return this.formatContextEntries(ranked.map(item => item.file));
+    const ranked = rankEntries(document.files, query, maxResults, scopePrefix);
+    return ranked.length ? formatContextEntries(ranked) : '';
   }
 
   async buildFallbackContext(maxResults = 4, scopePrefix = ''): Promise<string> {
@@ -124,7 +98,7 @@ export class CodeIndexStore {
       return '';
     }
 
-    const scopedFiles = this.filterByScope(document.files, scopePrefix);
+    const scopedFiles = filterByScope(document.files, scopePrefix);
     if (!scopedFiles.length) {
       return '';
     }
@@ -133,7 +107,7 @@ export class CodeIndexStore {
       .sort((a, b) => b.mtime - a.mtime)
       .slice(0, maxResults);
 
-    return this.formatContextEntries(recentFiles);
+    return formatContextEntries(recentFiles);
   }
 
   private async performRebuild(): Promise<CodeIndexBuildResult> {
@@ -163,13 +137,13 @@ export class CodeIndexStore {
         }
 
         const bytes = await vscode.workspace.fs.readFile(uri);
-        if (this.isBinary(bytes)) {
+        if (isBinaryContent(bytes)) {
           skippedFiles += 1;
           continue;
         }
 
         const text = this.decoder.decode(bytes);
-        const preview = this.toPreview(text);
+        const preview = toPreview(text, this.settings.codeIndexPreviewLines);
         if (!preview.trim()) {
           skippedFiles += 1;
           continue;
@@ -178,7 +152,7 @@ export class CodeIndexStore {
         const relativePath = vscode.workspace.asRelativePath(uri, false);
         files.push({
           relativePath,
-          language: this.guessLanguage(relativePath),
+          language: guessLanguage(relativePath),
           size: stat.size,
           mtime: stat.mtime,
           preview
@@ -198,7 +172,7 @@ export class CodeIndexStore {
     };
 
     const indexUri = this.getIndexUri(workspaceFolder.uri);
-    await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(workspaceFolder.uri, '.olliberty'));
+    await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(workspaceFolder.uri, INDEX_DIRECTORY));
     await vscode.workspace.fs.writeFile(indexUri, this.encoder.encode(JSON.stringify(document)));
 
     return {
@@ -218,115 +192,13 @@ export class CodeIndexStore {
     try {
       const bytes = await vscode.workspace.fs.readFile(indexUri);
       const parsed = JSON.parse(this.decoder.decode(bytes)) as Partial<CodeIndexDocument>;
-
-      if (
-        typeof parsed.version !== 'number'
-        || typeof parsed.generatedAt !== 'number'
-        || typeof parsed.workspaceRoot !== 'string'
-        || typeof parsed.fileCount !== 'number'
-        || !Array.isArray(parsed.files)
-      ) {
-        return null;
-      }
-
-      return parsed as CodeIndexDocument;
+      return isValidIndexDocument(parsed) ? parsed : null;
     } catch {
       return null;
     }
   }
 
   private getIndexUri(workspaceUri: vscode.Uri): vscode.Uri {
-    return vscode.Uri.joinPath(workspaceUri, '.olliberty', 'code-index.json');
-  }
-
-  private toPreview(text: string): string {
-    const lines = text.split(/\r?\n/).slice(0, this.settings.codeIndexPreviewLines);
-    return lines.join('\n').slice(0, 3000);
-  }
-
-  private tokenize(query: string): string[] {
-    const tokens = query.toLowerCase().match(/[a-z0-9_./-]{2,}/g) ?? [];
-    return Array.from(new Set(tokens)).slice(0, 12);
-  }
-
-  private scoreEntry(file: CodeIndexEntry, tokens: string[]): number {
-    const haystackPath = file.relativePath.toLowerCase();
-    const haystackPreview = file.preview.toLowerCase();
-    let score = 0;
-
-    for (const token of tokens) {
-      if (haystackPath.includes(token)) {
-        score += 5;
-      }
-      if (haystackPreview.includes(token)) {
-        score += 1;
-      }
-    }
-
-    return score;
-  }
-
-  private isBinary(content: Uint8Array): boolean {
-    const maxScan = Math.min(content.length, 1024);
-    for (let i = 0; i < maxScan; i += 1) {
-      if (content[i] === 0) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  private guessLanguage(relativePath: string): string {
-    const extension = path.extname(relativePath).toLowerCase();
-    switch (extension) {
-      case '.ts': return 'ts';
-      case '.tsx': return 'tsx';
-      case '.js': return 'js';
-      case '.jsx': return 'jsx';
-      case '.json': return 'json';
-      case '.md': return 'markdown';
-      case '.py': return 'python';
-      case '.go': return 'go';
-      case '.rs': return 'rust';
-      case '.java': return 'java';
-      case '.kt': return 'kotlin';
-      case '.css': return 'css';
-      case '.html': return 'html';
-      case '.yml':
-      case '.yaml':
-        return 'yaml';
-      default:
-        return 'plaintext';
-    }
-  }
-
-  private formatContextEntries(entries: CodeIndexEntry[]): string {
-    const parts = entries.map(file => {
-      const language = file.language === 'plaintext' ? '' : file.language;
-      return [
-        `File: ${file.relativePath}`,
-        `\`\`\`${language}`,
-        file.preview,
-        '```'
-      ].join('\n');
-    });
-
-    return parts.join('\n\n');
-  }
-
-  private filterByScope(files: CodeIndexEntry[], scopePrefix: string): CodeIndexEntry[] {
-    const normalizedPrefix = this.normalizeScopePrefix(scopePrefix);
-    if (!normalizedPrefix) {
-      return files;
-    }
-
-    return files.filter(file =>
-      file.relativePath === normalizedPrefix
-      || file.relativePath.startsWith(`${normalizedPrefix}/`)
-    );
-  }
-
-  private normalizeScopePrefix(scopePrefix: string): string {
-    return scopePrefix.trim().replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/\/+$/, '');
+    return vscode.Uri.joinPath(workspaceUri, INDEX_DIRECTORY, INDEX_FILE_NAME);
   }
 }

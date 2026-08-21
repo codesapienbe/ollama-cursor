@@ -1,5 +1,5 @@
 import { OllamaClient } from '../client';
-import { DEFAULT_MODEL, isReasoningEffort } from '../settings';
+import { DEFAULT_MODEL, isReasoningEffort } from '../core/settingsContract';
 
 function usageText(): string {
   return [

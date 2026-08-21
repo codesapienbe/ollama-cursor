@@ -1,22 +1,32 @@
 # Olliberty
 
-Transform your editor into an AI-powered coding assistant with local Ollama integration! This project provides a modern chat interface similar to GitHub Copilot, complete with context-aware responses and inline code completion.
+Transform your editor — or your terminal — into an AI-powered coding assistant with local Ollama integration! This project provides a modern chat interface similar to GitHub Copilot, complete with context-aware responses and inline code completion, plus a full-screen terminal UI for people who live in the shell.
 
-## Supported IDEs
+## Supported surfaces
 
-| IDE | What you install | Where |
+| Surface | What you install | Where |
 |---|---|---|
 | VS Code | The extension at the repository root, packaged as a `.vsix` | [Installation & Setup](#installation--setup) below |
 | Cursor | The **same** `.vsix` — Cursor is a VS Code fork and uses the same extension format | [Installation & Setup](#installation--setup) below |
 | IntelliJ IDEA | A separate JetBrains Platform plugin in [`intellij-plugin/`](intellij-plugin/) | [`intellij-plugin/README.md`](intellij-plugin/README.md) |
+| Terminal | The `olliberty` CLI — a TUI built from the same engine as the plugin | [Olliberty CLI](#olliberty-cli) below |
 
 IntelliJ IDEA cannot run VS Code extensions, so it's a distinct Kotlin/Gradle
 codebase that mirrors the same features (chat widget, Ask AI, OS-aware
 installer, configurable model/temperature/tokens) against the same local
 Ollama daemon.
 
+The CLI is not a reimplementation: it imports the same plan gate, edit
+proposal contract, code index, secret scrubber, conversation store, and
+multi-agent runner the extension uses, and swaps only the host-specific
+pieces (configuration source, filesystem access, secret storage, rendering).
+Behaviour that matters — plan-first by default, no file written without an
+explicit approval, the local-only network kill switch — is the same code in
+both.
+
 ## Features
 
+- **🖥️ Terminal UI**: A full `olliberty` CLI with the same engine — plan gate, diffs, sub-agent tree, activity feed (see [Olliberty CLI](#olliberty-cli))
 - **🤖 Modern Chat Interface**: Beautiful webview-based chat widget similar to GitHub Copilot
 - **📱 Multiple Access Points**: Available in both left sidebar and right panel (secondary sidebar)
 - **📋 Plan-First by Default**: Every request is turned into a reviewable plan; nothing runs and no file is written until you accept it
@@ -36,6 +46,171 @@ Ollama daemon.
 - **🎯 Smart Error Handling**: Comprehensive error handling with user-friendly messages
 - **💻 OS-Specific Installation**: Automatic detection and installation guidance for Windows, macOS, and Linux
 - **🔧 Highly Configurable**: Customizable model, temperature, and token settings
+
+## Olliberty CLI
+
+A terminal client with the same engine as the plugin: plan-first by default,
+diffs before writes, live activity, delegated sub-agents, and the shared
+`.olliberty/code-index.json`.
+
+### Install
+
+```bash
+npm install
+npm run compile          # builds the extension and the CLI
+npm link                 # puts `olliberty` on your PATH
+```
+
+`make install` does this as part of installing everything (extension + CLI) in
+one step; `make uninstall` reverses both. To run the CLI without linking it:
+
+```bash
+npm run cli -- --help
+node ./bin/olliberty.js "explain src/main/client.ts"
+```
+
+### First run
+
+```bash
+cd ~/your-project
+olliberty
+```
+
+You get a gradient wordmark, a boxed composer, and a status bar showing the
+workspace, git branch, model, reasoning effort, mode, and Ollama connectivity.
+
+```
+ ███  █     █     █████ ████  █████ ████  █████ █   █
+█   █ █     █       █   █   █ █     █   █   █    █ █
+█   █ █     █       █   ████  ████  ████    █     █
+█   █ █     █       █   █   █ █     █  █    █     █
+ ███  █████ █████ █████ ████  █████ █   █   █     █
+
+╭──────────────────────────────────────────────────────────────╮
+│ › Ask anything, or /help for commands                        │
+╰──────────────────────────────────────────────────────────────╯
+  ~/your-project · ⎇ main · qwen3.8:latest · medium    plan  ● ollama
+```
+
+### Keys
+
+| Key | Action |
+|---|---|
+| `Enter` | Send |
+| `Alt+Enter`, or `\` then `Enter` | Newline (multi-line prompts) |
+| `Esc` | Interrupt the running turn — partial output is kept |
+| `Shift+Tab` | Toggle plan / auto mode |
+| `Tab` | Accept the highlighted completion |
+| `↑` / `↓` | History (or move between lines of a multi-line prompt) |
+| `Ctrl+A` / `Ctrl+E` | Start / end of line |
+| `Ctrl+W`, `Ctrl+U`, `Ctrl+K` | Delete word back, to line start, to line end |
+| `Ctrl+L` | Redraw |
+| `Ctrl+C` | Clear the draft; twice on an empty prompt exits |
+| `Ctrl+D` | Exit |
+
+Completions open as you type: `/` lists commands with descriptions, and
+argument positions complete model names, config keys, session ids, token keys,
+and paths. Mention files inline with `@src/main/client.ts` to attach them as
+context — the CLI's equivalent of the plugin's "active editor" context.
+
+### What the output looks like
+
+- **Plans** render as numbered steps with the files they expect to touch and the risks the model flagged. Nothing runs until `/accept`.
+- **Diffs** render as file panels with real line numbers, hunk headers, and tinted add/remove rows — for proposals, for applied changes, and for any fenced `diff` block in a model reply.
+- **Sub-agents** render as a live tree with per-agent status and detail while they run in parallel.
+- **Activity** shows every step (indexing, context retrieval, model calls, per-file writes) with durations while a turn is in flight, and is mirrored to `.olliberty/cli-activity.log`.
+
+### Commands
+
+`/help` lists everything. The CLI understands every slash command the chat
+widget does — `/mode`, `/plan`, `/accept`, `/discard`, `/edit`, `/approve`,
+`/reject`, `/changes`, `/activity`, `/index`, `/path`, `/agents`, `/models`,
+`/model`, `/effort`, `/privacy`, `/token`, `/graphify`, `/sessions`,
+`/session`, `/note`, `/notes` — plus a few that only make sense in a terminal:
+
+| Command | What it does |
+|---|---|
+| `/diff <file>` | Reprint the diff of a change applied this session |
+| `/attach <path>` / `/detach <path\|all>` | Manage attached context files |
+| `/context` | Show exactly what the next request will carry |
+| `/config [key] [value]` | Inspect effective configuration and where each value came from, or write one to your user config |
+| `/doctor` | Check Ollama connectivity, the configured model, and print install instructions if it is missing |
+| `/clear`, `/exit` | Start a new session, leave the CLI |
+
+### Non-interactive use
+
+```bash
+olliberty "why does the code index skip binary files?"   # one request, then exit
+olliberty -p "summarise src/cli/session.ts" --plain      # raw markdown, pipe-friendly
+olliberty --json "list the slash commands" | jq -r .content
+olliberty index                                          # rebuild the code index
+olliberty models | olliberty doctor | olliberty sessions
+```
+
+One-shot runs honour the configured mode, so in the default plan mode you get
+a plan rather than an answer. Pass `--mode auto` for a direct answer, or `-y`
+to run immediately **and** write approved edits without prompting:
+
+```bash
+olliberty -y "/edit add a subtract function to math.js"
+```
+
+`-y` is the only way to get a file written without a human approval step, and
+it exists for scripting. Interactive sessions always show the diff first.
+
+Options: `-m/--model`, `--url`, `--mode plan|auto`, `--effort`, `-C/--cwd`,
+`-y/--yes`, `--no-stream`, `--no-index`, `--no-color`, `--plain`, `--json`,
+`-h/--help`, `-v/--version`.
+
+### Configuration
+
+Settings are the same keys as the VS Code settings, layered lowest to highest:
+
+1. defaults
+2. `~/.olliberty/config.json` (user)
+3. `<workspace>/.olliberty/config.json` (project, commit it to share with your team)
+4. environment — `OLLIBERTY_URL` or `OLLAMA_HOST`, `OLLIBERTY_MODEL`, `OLLIBERTY_MODE`, `OLLIBERTY_EFFORT`
+5. command-line flags
+
+```json
+{
+  "model": "qwen3.8:latest",
+  "mode": "plan",
+  "effort": "medium",
+  "timeoutMs": 180000,
+  "codeIndex": { "maxFiles": 800 },
+  "privacy": { "allowedHosts": ["localhost", "127.0.0.1", "::1"] }
+}
+```
+
+`/config <key> <value>` and `/model`, `/mode`, `/effort` write to the user
+config file — the CLI's equivalent of the extension writing to global
+settings. `OLLIBERTY_HOME` relocates the whole user directory, which is handy
+for throwaway or per-project state.
+
+`timeoutMs` is worth raising (it defaults to 45 s, matching the plugin) if you
+run `/agents` against a large model: three sub-agents plus a synthesis pass
+contend for the same Ollama process, and a slow first token can otherwise time
+one of them out.
+
+### State, and what is shared with the IDE
+
+| Path | Contents |
+|---|---|
+| `<workspace>/.olliberty/code-index.json` | Local code index — **shared with the plugin**, either side can build it |
+| `<workspace>/.olliberty/config.json` | Project configuration |
+| `<workspace>/.olliberty/cli-activity.log` | Durable activity log (the CLI's output channel) |
+| `~/.olliberty/config.json` | User configuration |
+| `~/.olliberty/conversations.db` | Sessions, messages, notes, imported Graphify graphs (SQLite) |
+| `~/.olliberty/history` | Prompt history |
+| `~/.olliberty/secrets.json` | `/token` values |
+
+One honest caveat: the plugin stores `/token` secrets in the OS keychain
+through VS Code's `SecretStorage`. A CLI has no keychain to talk to, so those
+values live in `~/.olliberty/secrets.json` with owner-only file permissions
+(`0600`) and are **not encrypted at rest**. `/privacy` and `/token` both say
+so. The network kill switch still applies: outbound requests are restricted to
+`privacy.allowedHosts`, which by default is localhost only.
 
 ## Installation & Setup
 
@@ -315,27 +490,54 @@ If you see "Ollama not found" messages:
 
 This repository contains two independent codebases:
 
-- **Repository root** — the VS Code/Cursor extension (TypeScript, npm).
+- **Repository root** — the VS Code/Cursor extension **and** the CLI (TypeScript, npm). They share everything under [`src/main/core/`](src/main/core/) plus the client, diff, plan, and multi-agent modules; `src/main/ui/` is IDE-only and `src/cli/` is terminal-only.
 - **`intellij-plugin/`** — the IntelliJ IDEA plugin (Kotlin, Gradle). See [`intellij-plugin/README.md`](intellij-plugin/README.md).
 
-### Building the VS Code/Cursor extension from Source
+### Building from source
 ```bash
 npm install
-npm run compile
+npm run compile             # extension + CLI
+npm run compile:extension   # extension only  (out/main)
+npm run compile:cli         # CLI only        (out/cli)
+npm run watch:cli           # CLI in watch mode
 ```
 
 ### Installing your local build
 
-`make install` only *builds* artifacts — it does not install anything into an editor. Use these targets instead:
-
 ```bash
-make install-vscode      # package the VSIX and install it into VS Code
-make install-cursor      # same, into Cursor
-make reinstall-vscode    # uninstall first, then install (use when the version is unchanged)
-make uninstall-vscode    # remove the installed extension
+make install             # build everything, then install the extension and the CLI
 ```
 
-Reload the editor window afterwards (*Developer: Reload Window*) — installing does not restart the running extension host.
+`make install` builds every artifact and installs all three surfaces:
+
+- the **VSIX** into whichever of VS Code and Cursor it finds (an editor that is not installed is skipped rather than failing the run);
+- the **IntelliJ plugin**, unpacked into every IntelliJ IDEA configuration directory it detects (`~/Library/Application Support/JetBrains/<Product><Version>/plugins` on macOS, `~/.local/share/JetBrains/…` on Linux) — the same thing *Install Plugin from Disk…* does. Point it somewhere specific with `make install JETBRAINS_PLUGIN_DIR=/path/to/plugins`, and if no IDE directory is found it prints the manual instructions instead;
+- the **CLI**, linked onto your PATH.
+
+For narrower steps:
+
+```bash
+make install-vscode      # package the VSIX and install it into VS Code only
+make install-cursor      # same, into Cursor only
+make install-intellij    # build and unpack the IntelliJ plugin only
+make reinstall-vscode    # uninstall first, then install (use when the version is unchanged)
+make uninstall           # remove the extension, the IntelliJ plugin, and the CLI link
+make uninstall-vscode    # remove only the installed extension
+make uninstall-intellij  # remove only the IntelliJ plugin
+make uninstall-cli       # remove only the CLI link
+```
+
+Afterwards: reload the editor window in VS Code/Cursor (*Developer: Reload Window*) and **restart IntelliJ IDEA** — neither host picks up a new build on its own.
+
+To produce distributable artifacts for all three surfaces at once:
+
+```bash
+make bundle              # bumps versions, then writes dist/
+```
+
+`dist/` ends up holding the `.vsix` (VS Code and Cursor), the IntelliJ plugin
+`.zip`, and an npm tarball of the CLI, and the target prints the install command
+for each — including `npm install -g dist/olliberty-<version>.tgz`.
 
 The targets locate the editor CLI on `PATH` and fall back to the macOS app bundle. If neither works, point them at it explicitly:
 
@@ -349,7 +551,8 @@ For day-to-day development, `make run-vscode` launches an Extension Development 
 
 ### Testing
 ```bash
-npm test
+npm test        # extension tests, in a VS Code test host
+npm run test:cli  # CLI unit tests (node:test) — key decoding, editor, wrapping, config, rendering
 ```
 
 ### Building the IntelliJ plugin from Source
@@ -363,7 +566,7 @@ cd intellij-plugin
 - **VS Code**: Version 1.85.0 or higher, **or Cursor** (any recent version — same extension format)
 - **IntelliJ IDEA**: Version 2023.3 or higher (Community or Ultimate), via the separate plugin in `intellij-plugin/`
 - **Ollama**: Latest version recommended
-- **Node.js**: For building the VS Code/Cursor extension from source
+- **Node.js**: 18 or newer — required to run the CLI, and to build the extension from source
 - **JDK 17+**: For building the IntelliJ plugin from source
 
 ## License

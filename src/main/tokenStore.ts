@@ -1,4 +1,4 @@
-import * as vscode from 'vscode';
+import { SecretVault } from './core/secretVault';
 
 const TOKEN_KEY_REGEX = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
 const INDEX_SECRET_KEY = 'olliberty.tokens.index';
@@ -10,7 +10,7 @@ export interface TokenResolutionResult {
 }
 
 export class TokenStore {
-  constructor(private readonly secrets: vscode.SecretStorage) {}
+  constructor(private readonly secrets: SecretVault) {}
 
   async setToken(key: string, value: string): Promise<string> {
     const normalizedKey = this.normalizeKey(key);
