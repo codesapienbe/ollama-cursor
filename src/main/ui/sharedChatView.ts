@@ -7,7 +7,12 @@ import { AgentEditService, AppliedChange, EditProposal } from '../agentEditServi
 import { OllamaClient, isAbortedError } from '../client';
 import { CodeIndexStore } from '../codeIndex';
 import { ConversationStore } from '../conversationStore';
-import { DelegatedAgentProgress, MultiAgentService } from '../multiAgentService';
+import {
+  DelegatedAgentProgress,
+  DelegationDecision,
+  MultiAgentService,
+  formatAgentFooter
+} from '../multiAgentService';
 import { Plan, PlanService } from '../planService';
 import { AgentMode, Settings, isAgentMode } from '../settings';
 import { scrubSensitiveContent } from '../security/secretScrubber';
@@ -394,7 +399,12 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  /** Streamed answer turn: tokens land in the transcript as they arrive. */
+  /**
+   * The answer turn. Every request is routed first: anything with real work in
+   * it is split across sub-agents and their results merged, and only short or
+   * self-contained requests take the single-pass path. `/agents` is the same
+   * machinery with the router skipped, not a separate mode.
+   */
   private async _runExecutionTurn(
     request: string,
     knownTokenValues: string[],
@@ -402,6 +412,124 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
   ): Promise<void> {
     const signal = this._beginRun();
     this._setGenerating(true);
+
+    try {
+      const decision = await this._routeRequest(request, signal);
+      if (decision?.fanOut) {
+        const answered = await this._runFannedOutTurn(request, plan, knownTokenValues, decision, signal);
+        if (answered || signal.aborted) {
+          return;
+        }
+        /* The split failed outright. The user asked a question and is owed an
+           answer, so drop to one pass rather than reporting the machinery. */
+        this._activity.info('Answering in a single pass', 'the delegated run produced nothing');
+      }
+
+      await this._streamSingleAnswer(request, plan, knownTokenValues, signal);
+    } finally {
+      this._endRun();
+      this._setGenerating(false);
+      this._activeAgentRuns = [];
+      this._updateWebview();
+    }
+  }
+
+  /** Routing must never cost the user their turn; a failure means one pass. */
+  private async _routeRequest(request: string, signal: AbortSignal): Promise<DelegationDecision | null> {
+    try {
+      return await this._multiAgentService.decide(request, signal);
+    } catch (error) {
+      if (this._wasStopped(error, signal)) {
+        return null;
+      }
+      this._activity.info('Agent routing unavailable', this._rawErrorMessage(error));
+      return null;
+    }
+  }
+
+  /**
+   * Runs the split and streams the merged answer into the transcript as an
+   * ordinary assistant message. Returns false when nothing usable came back,
+   * so the caller can still answer directly.
+   */
+  private async _runFannedOutTurn(
+    request: string,
+    plan: Plan | null,
+    knownTokenValues: string[],
+    decision: DelegationDecision,
+    signal: AbortSignal
+  ): Promise<boolean> {
+    this._streamingContent = '';
+
+    try {
+      const result = await this._multiAgentService.runDelegatedTask(
+        request,
+        agents => this._publishAgentRuns(agents),
+        {
+          signal,
+          decision,
+          extraContext: this._buildDelegationContext(plan),
+          /* The fan-out itself takes tens of seconds with nothing to show, so
+             the transcript only enters streaming state once the merged answer
+             starts arriving. */
+          onSynthesisToken: (_chunk, full) => {
+            this._isStreaming = true;
+            this._streamingContent = full;
+            this._updateWebview();
+          }
+        }
+      );
+
+      const partial = this._streamingContent;
+      this._isStreaming = false;
+      this._streamingContent = '';
+
+      if (signal.aborted) {
+        await this._addMessage(
+          'assistant',
+          partial
+            ? `${scrubSensitiveContent(partial, knownTokenValues).text}\n\n⏹ _Stopped by you — partial answer above._`
+            : '⏹ **Stopped by you.** Nothing was generated.'
+        );
+        return true;
+      }
+
+      if (!result.synthesis.trim()) {
+        return false;
+      }
+
+      const scrubbed = scrubSensitiveContent(result.synthesis, knownTokenValues);
+      await this._addMessage('assistant', [scrubbed.text, formatAgentFooter(result.agents)].join('\n'));
+      return true;
+    } catch (error) {
+      const partial = this._streamingContent;
+      this._isStreaming = false;
+      this._streamingContent = '';
+
+      if (this._wasStopped(error, signal)) {
+        const scrubbedPartial = partial ? scrubSensitiveContent(partial, knownTokenValues).text : '';
+        await this._addMessage(
+          'assistant',
+          scrubbedPartial
+            ? `${scrubbedPartial}\n\n⏹ _Stopped by you — partial answer above._`
+            : '⏹ **Stopped by you.** Nothing was generated.'
+        );
+        return true;
+      }
+
+      /* Not fatal: the single-pass fallback still owes the user an answer. */
+      this._activity.info('Delegated run failed', this._rawErrorMessage(error));
+      return false;
+    }
+  }
+
+  /** Single-pass answer: tokens land in the transcript as they arrive. */
+  private async _streamSingleAnswer(
+    request: string,
+    plan: Plan | null,
+    knownTokenValues: string[],
+    signal: AbortSignal
+  ): Promise<void> {
     this._streamingContent = '';
     this._isStreaming = true;
 
@@ -426,7 +554,8 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
               this._streamingContent = full;
               step.update(`${full.length} chars streamed`);
               this._updateWebview();
-            }
+            },
+            onThinking: (_chunk, full) => step.update(`reasoning · ${full.length} chars`)
           }),
         `model: ${this._client.getCurrentModel()}`
       );
@@ -455,10 +584,29 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
       } else {
         await this._addMessage('assistant', this._formatErrorMessage(error));
       }
-    } finally {
-      this._endRun();
-      this._setGenerating(false);
     }
+  }
+
+  private _publishAgentRuns(agents: DelegatedAgentProgress[]): void {
+    this._activeAgentRuns = agents.map(agent => ({
+      id: agent.id,
+      name: agent.name,
+      status: agent.status,
+      detail: agent.detail
+    }));
+    this._updateWebview();
+  }
+
+  /* Sub-agents get the scope header and the approved plan — the same framing
+     the single-pass prompt carries. The indexed snippets are left to the
+     service, which sizes them to the agents' context window. */
+  private _buildDelegationContext(plan: Plan | null): string {
+    const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    const parts = [
+      workspaceRootPath ? this._buildScopePromptHeader(workspaceRootPath, workspaceRootPath) : '',
+      plan ? this._planService.toExecutionBrief(plan) : ''
+    ];
+    return parts.filter(Boolean).join('\n\n');
   }
 
   private async _openAppliedChangeDiff(filePath: string): Promise<void> {
@@ -1167,45 +1315,50 @@ export class SharedChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  /**
+   * `/agents <goal>`: the same machinery as an ordinary turn with the router
+   * skipped, so a request the router would have answered in one pass gets
+   * split anyway.
+   */
   private async _runDelegatedAgents(goal: string): Promise<string> {
     const signal = this._beginRun();
+    this._streamingContent = '';
+
     try {
       const result = await this._multiAgentService.runDelegatedTask(
         goal,
-        agents => {
-          this._activeAgentRuns = agents.map(agent => ({
-            id: agent.id,
-            name: agent.name,
-            status: agent.status,
-            detail: agent.detail
-          }));
-          this._updateWebview();
-        },
-        signal
+        agents => this._publishAgentRuns(agents),
+        {
+          signal,
+          force: true,
+          extraContext: this._buildDelegationContext(null),
+          onSynthesisToken: (_chunk, full) => {
+            this._isStreaming = true;
+            this._streamingContent = full;
+            this._updateWebview();
+          }
+        }
       );
+
+      this._isStreaming = false;
+      this._streamingContent = '';
 
       if (signal.aborted) {
         return '⏹ **Stopped by you.** The delegated agent run was interrupted.';
       }
 
-      const agentLines = result.agents.map(agent => {
-        const statusIcon = agent.status === 'completed' ? '✅' : agent.status === 'failed' ? '❌' : '⏳';
-        const detailSuffix = agent.detail ? ` — ${agent.detail}` : '';
-        return `- ${statusIcon} **${agent.name}**${detailSuffix}`;
-      });
+      if (!result.synthesis.trim()) {
+        return '⚠️ The agents ran but produced no answer. Try a lower reasoning effort, a smaller request, or a larger `olliberty.agents.maxTokens`.';
+      }
 
-      return [
-        `🤝 **Delegated multi-agent run completed**`,
-        '',
-        `Goal: ${goal}`,
-        '',
-        'Agents:',
-        ...agentLines,
-        '',
-        'Synthesis:',
-        result.synthesis
-      ].join('\n');
+      const knownTokenValues = await this._tokenStore.listTokenValues();
+      const scrubbed = scrubSensitiveContent(result.synthesis, knownTokenValues);
+      await this._addMessage('assistant', [scrubbed.text, formatAgentFooter(result.agents)].join('\n'));
+      /* The answer is already in the transcript; no second copy. */
+      return '';
     } catch (error) {
+      this._isStreaming = false;
+      this._streamingContent = '';
       return this._wasStopped(error, signal)
         ? '⏹ **Stopped by you.** The delegated agent run was interrupted.'
         : `❌ **Delegated multi-agent run failed**: ${this._rawErrorMessage(error)}`;

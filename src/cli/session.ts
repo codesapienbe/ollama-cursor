@@ -15,7 +15,12 @@ import { detectOS, getInstallationInfo } from '../main/core/ollamaInstall';
 import { AgentMode, isAgentMode } from '../main/core/settingsContract';
 import { ConversationStore } from '../main/conversationStore';
 import { FileDiff } from '../main/diff';
-import { DelegatedAgentProgress, MultiAgentService } from '../main/multiAgentService';
+import {
+  DelegatedAgentProgress,
+  DelegationDecision,
+  MultiAgentService,
+  formatAgentFooter
+} from '../main/multiAgentService';
 import { Plan, PlanService } from '../main/planService';
 import { scrubSensitiveContent } from '../main/security/secretScrubber';
 import { TokenStore } from '../main/tokenStore';
@@ -38,7 +43,7 @@ export interface ChatMessage {
 
 export type AgentRunView = Pick<
   DelegatedAgentProgress,
-  'id' | 'name' | 'goal' | 'status' | 'detail' | 'chars' | 'startedAt' | 'endedAt'
+  'id' | 'name' | 'goal' | 'status' | 'detail' | 'chars' | 'startedAt' | 'endedAt' | 'attempt'
 >;
 
 export interface SessionState {
@@ -293,10 +298,136 @@ export class AgentSession {
     }
   }
 
-  /** Streamed answer turn: tokens land in the transcript as they arrive. */
+  /**
+   * The answer turn. Every request is routed first: anything with real work in
+   * it is split across sub-agents and their results merged, and only short or
+   * self-contained requests take the single-pass path. `/agents` is the same
+   * machinery with the router skipped, not a separate mode.
+   */
   private async runExecutionTurn(request: string, knownTokenValues: string[], plan: Plan | null): Promise<void> {
     const signal = this.beginRun();
     this.setGenerating(true);
+
+    try {
+      const decision = await this.routeRequest(request, signal);
+      if (decision?.fanOut) {
+        const answered = await this.runFannedOutTurn(request, plan, knownTokenValues, decision, signal);
+        if (answered || this.wasStopped(null, signal)) {
+          return;
+        }
+        /* The split failed outright. The user asked a question and is owed an
+           answer, so drop to one pass rather than reporting the machinery. */
+        this.deps.activity.info('Answering in a single pass', 'the delegated run produced nothing');
+      }
+
+      await this.streamSingleAnswer(request, plan, knownTokenValues, signal);
+    } finally {
+      this.endRun();
+      this.setGenerating(false);
+      this.agentRuns = [];
+      this.emit({ type: 'agents', agents: [] });
+    }
+  }
+
+  /** Routing must never cost the user their turn; a failure means one pass. */
+  private async routeRequest(request: string, signal: AbortSignal): Promise<DelegationDecision | null> {
+    try {
+      return await this.deps.multiAgentService.decide(request, signal);
+    } catch (error) {
+      if (this.wasStopped(error, signal)) {
+        return null;
+      }
+      this.deps.activity.info('Agent routing unavailable', this.rawErrorMessage(error));
+      return null;
+    }
+  }
+
+  /**
+   * Runs the split and streams the merged answer into the transcript as an
+   * ordinary assistant message — the sub-agents show up in the task panel, not
+   * in the answer. Returns false when nothing usable came back, so the caller
+   * can still answer directly.
+   */
+  private async runFannedOutTurn(
+    request: string,
+    plan: Plan | null,
+    knownTokenValues: string[],
+    decision: DelegationDecision,
+    signal: AbortSignal
+  ): Promise<boolean> {
+    this.streamingContent = '';
+
+    try {
+      const result = await this.deps.multiAgentService.runDelegatedTask(
+        request,
+        agents => this.publishAgentRuns(agents),
+        {
+          signal,
+          decision,
+          extraContext: this.buildDelegationContext(plan),
+          /* The fan-out itself takes tens of seconds with nothing to show, so
+             the transcript only enters streaming state once the merged answer
+             starts arriving. */
+          onSynthesisToken: (_chunk, full) => {
+            if (!this.isStreaming) {
+              this.isStreaming = true;
+              this.emit({ type: 'stream-start' });
+            }
+            this.streamingContent = full;
+            this.emit({ type: 'stream', full });
+          }
+        }
+      );
+
+      if (this.wasStopped(null, signal)) {
+        const partial = this.streamingContent;
+        this.endStream();
+        await this.addMessage(
+          'assistant',
+          partial
+            ? `${scrubSensitiveContent(partial, knownTokenValues).text}\n\n⏹ _Stopped by you — partial answer above._`
+            : '⏹ **Stopped by you.** Nothing was generated.'
+        );
+        return true;
+      }
+
+      if (!result.synthesis.trim()) {
+        this.endStream();
+        return false;
+      }
+
+      const scrubbed = scrubSensitiveContent(result.synthesis, knownTokenValues);
+      this.endStream();
+      await this.addMessage('assistant', [scrubbed.text, formatAgentFooter(result.agents)].join('\n'));
+      return true;
+    } catch (error) {
+      const partial = this.streamingContent;
+      this.endStream();
+
+      if (this.wasStopped(error, signal)) {
+        const scrubbedPartial = partial ? scrubSensitiveContent(partial, knownTokenValues).text : '';
+        await this.addMessage(
+          'assistant',
+          scrubbedPartial
+            ? `${scrubbedPartial}\n\n⏹ _Stopped by you — partial answer above._`
+            : '⏹ **Stopped by you.** Nothing was generated.'
+        );
+        return true;
+      }
+
+      /* Not fatal: the single-pass fallback still owes the user an answer. */
+      this.deps.activity.info('Delegated run failed', this.rawErrorMessage(error));
+      return false;
+    }
+  }
+
+  /** Single-pass answer: tokens land in the transcript as they arrive. */
+  private async streamSingleAnswer(
+    request: string,
+    plan: Plan | null,
+    knownTokenValues: string[],
+    signal: AbortSignal
+  ): Promise<void> {
     this.streamingContent = '';
     this.isStreaming = true;
     this.emit({ type: 'stream-start' });
@@ -322,7 +453,8 @@ export class AgentSession {
               this.streamingContent = full;
               step.update(`${full.length} chars streamed`);
               this.emit({ type: 'stream', full });
-            }
+            },
+            onThinking: (_chunk, full) => step.update(`reasoning · ${full.length} chars`)
           }),
         `model: ${this.deps.client.getCurrentModel()}`
       );
@@ -347,10 +479,34 @@ export class AgentSession {
       } else {
         await this.addMessage('assistant', this.formatErrorMessage(error));
       }
-    } finally {
-      this.endRun();
-      this.setGenerating(false);
     }
+  }
+
+  private publishAgentRuns(agents: DelegatedAgentProgress[]): void {
+    this.agentRuns = agents.map(agent => ({
+      id: agent.id,
+      name: agent.name,
+      goal: agent.goal,
+      status: agent.status,
+      detail: agent.detail,
+      chars: agent.chars,
+      startedAt: agent.startedAt,
+      endedAt: agent.endedAt,
+      attempt: agent.attempt
+    }));
+    this.emit({ type: 'agents', agents: this.agentRuns });
+  }
+
+  /* Sub-agents get the scope header, the attachments and the approved plan —
+     the same framing the single-pass prompt carries. The indexed snippets are
+     left to the service, which sizes them to the agents' context window. */
+  private buildDelegationContext(plan: Plan | null): string {
+    const parts = [
+      this.buildScopePromptHeader(this.deps.workspaceRoot, this.effectiveScopePath()),
+      plan ? this.deps.planService.toExecutionBrief(plan) : '',
+      this.attachments.length ? formatAttachments(this.attachments) : ''
+    ];
+    return parts.filter(Boolean).join('\n\n');
   }
 
   /* ───────────────────────────── slash commands ─────────────────────── */
@@ -529,6 +685,7 @@ export class AgentSession {
           this.endRun();
           this.setGenerating(false);
           this.agentRuns = [];
+          this.emit({ type: 'agents', agents: [] });
           this.publishState();
         }
 
@@ -688,49 +845,52 @@ export class AgentSession {
     }
   }
 
+  /**
+   * `/agents <goal>`: the same machinery as an ordinary turn with the router
+   * skipped, so a request the router would have answered in one pass gets
+   * split anyway.
+   */
   private async runDelegatedAgents(goal: string): Promise<string> {
     const signal = this.beginRun();
+    this.streamingContent = '';
+
     try {
       const result = await this.deps.multiAgentService.runDelegatedTask(
         goal,
-        agents => {
-          this.agentRuns = agents.map(agent => ({
-            id: agent.id,
-            name: agent.name,
-            goal: agent.goal,
-            status: agent.status,
-            detail: agent.detail,
-            chars: agent.chars,
-            startedAt: agent.startedAt,
-            endedAt: agent.endedAt
-          }));
-          this.emit({ type: 'agents', agents: this.agentRuns });
-        },
-        signal
+        agents => this.publishAgentRuns(agents),
+        {
+          signal,
+          force: true,
+          extraContext: this.buildDelegationContext(null),
+          onSynthesisToken: (_chunk, full) => {
+            if (!this.isStreaming) {
+              this.isStreaming = true;
+              this.emit({ type: 'stream-start' });
+            }
+            this.streamingContent = full;
+            this.emit({ type: 'stream', full });
+          }
+        }
       );
 
       if (signal.aborted) {
+        this.endStream();
         return '⏹ **Stopped by you.** The delegated agent run was interrupted.';
       }
 
-      const agentLines = result.agents.map(agent => {
-        const statusIcon = agent.status === 'completed' ? '✅' : agent.status === 'failed' ? '❌' : '⏳';
-        const detailSuffix = agent.detail ? ` — ${agent.detail}` : '';
-        return `- ${statusIcon} **${agent.name}**${detailSuffix}`;
-      });
+      this.endStream();
 
-      return [
-        '🤝 **Delegated multi-agent run completed**',
-        '',
-        `Goal: ${goal}`,
-        '',
-        'Agents:',
-        ...agentLines,
-        '',
-        'Synthesis:',
-        result.synthesis
-      ].join('\n');
+      if (!result.synthesis.trim()) {
+        return '⚠️ The agents ran but produced no answer. Try `/effort low`, a smaller request, or raise `/config agents.maxTokens`.';
+      }
+
+      const knownTokenValues = await this.deps.tokenStore.listTokenValues();
+      const scrubbed = scrubSensitiveContent(result.synthesis, knownTokenValues);
+      await this.addMessage('assistant', [scrubbed.text, formatAgentFooter(result.agents)].join('\n'));
+      /* The answer is already in the transcript; no second copy. */
+      return '';
     } catch (error) {
+      this.endStream();
       return this.wasStopped(error, signal)
         ? '⏹ **Stopped by you.** The delegated agent run was interrupted.'
         : `❌ **Delegated multi-agent run failed**: ${this.rawErrorMessage(error)}`;
@@ -953,29 +1113,7 @@ export class AgentSession {
   }
 
   private readableConfigValue(key: ConfigKey): string {
-    const snapshot: Record<string, unknown> = {
-      'url': this.deps.settings.url,
-      'model': this.deps.settings.model,
-      'mode': this.deps.settings.mode,
-      'systemPrompt': this.deps.settings.systemPrompt,
-      'temperature': this.deps.settings.temperature,
-      'maxTokens': this.deps.settings.maxTokens,
-      'contextLength': this.deps.settings.contextLength,
-      'effort': this.deps.settings.effort,
-      'showActivityFeed': this.deps.settings.showActivityFeed,
-      'streamResponses': this.deps.settings.streamResponses,
-      'autoApplyEdits': this.deps.settings.autoApplyEdits,
-      'timeoutMs': this.deps.settings.timeoutMs,
-      'codeIndex.autoIndexWorkspace': this.deps.settings.autoIndexWorkspace,
-      'codeIndex.maxFiles': this.deps.settings.codeIndexMaxFiles,
-      'codeIndex.maxFileSizeKb': this.deps.settings.codeIndexMaxFileSizeKb,
-      'codeIndex.previewLines': this.deps.settings.codeIndexPreviewLines,
-      'codeIndex.staleAfterMinutes': this.deps.settings.codeIndexStaleAfterMinutes,
-      'codeIndex.excludeGlob': this.deps.settings.codeIndexExcludeGlob,
-      'privacy.networkKillSwitchEnabled': this.deps.settings.networkKillSwitchEnabled,
-      'privacy.allowedHosts': this.deps.settings.allowedHosts
-    };
-    const value = snapshot[key];
+    const value = this.deps.settings.snapshot()[key];
     return typeof value === 'string' && !value ? '_(empty)_' : `\`${JSON.stringify(value)}\``;
   }
 
@@ -1355,7 +1493,10 @@ export class AgentSession {
       '- `/graphify status` — show imported Graphify context stats',
       '',
       '**Agents**',
-      '- `/agents <goal>` — run delegated parallel sub-agents on the same model',
+      '- Requests are split across sub-agents automatically — no command needed',
+      '- `/agents <goal>` — split a request even when the router would answer in one pass',
+      '- `/config agents.delegation auto|always|off` — change when splitting happens',
+      '- `/config agents.maxCount 1-5` · `/config agents.maxParallel 1-5`',
       '- `/activity` — show what Olliberty did on the last run',
       '',
       '**Model & config**',

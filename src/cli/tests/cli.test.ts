@@ -7,12 +7,25 @@
 
 import * as assert from 'assert';
 import * as fs from 'fs';
+import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 import { test } from 'node:test';
 import { computeFileDiff } from '../../main/diff';
-import { DelegatedAgentProgress, MultiAgentService } from '../../main/multiAgentService';
-import { FileSettings } from '../config';
+import {
+  DelegatedAgentProgress,
+  MultiAgentService,
+  formatAgentFooter,
+  heuristicRoleIds,
+  isTrivialPrompt
+} from '../../main/multiAgentService';
+import {
+  EmptyAnswerError,
+  OllamaClient,
+  isEmptyAnswerError,
+  promptCharBudget
+} from '../../main/client';
+import { FileSettings, listConfigKeys } from '../config';
 import { compileGlob } from '../glob';
 import { extractMentions } from '../app';
 import { AgentRunView } from '../session';
@@ -267,6 +280,21 @@ test('settings layer project over user config and flags over both', async () => 
   delete process.env.OLLIBERTY_HOME;
 });
 
+test('every configurable key reports an effective value', () => {
+  /* A key in CONFIG_KEYS with no entry in snapshot() used to print
+     `undefined` in /config rather than failing anywhere visible. */
+  const settings = new FileSettings(makeTempDir('olliberty-snapshot-'));
+  const snapshot = settings.snapshot();
+
+  for (const key of listConfigKeys()) {
+    assert.ok(key in snapshot, `${key} is missing from FileSettings.snapshot()`);
+    assert.notStrictEqual(snapshot[key as keyof typeof snapshot], undefined, `${key} resolves to undefined`);
+  }
+
+  assert.strictEqual(snapshot['agents.delegation'], 'auto');
+  assert.strictEqual(snapshot.queueTimeoutMs, 600_000);
+});
+
 test('the network kill switch blocks non-allowed hosts', () => {
   const workspace = makeTempDir('olliberty-kill-');
   const settings = new FileSettings(workspace);
@@ -388,51 +416,97 @@ test('the split layout only kicks in when both columns fit', () => {
   assert.ok(taskPanelWidth(120) + taskPanelBodyWidth(120) < 120);
 });
 
-test('delegated runs publish live per-task progress, synthesis included', async () => {
-  /* A fake model that streams a few chunks per call, so the panel's inputs —
-     status, chars, timings — can be checked without Ollama. */
+/* ─────────────────────── delegated sub-agent runs ────────────────────── */
+
+interface FakeCall {
+  prompt: string;
+  think?: boolean;
+  numPredict?: number;
+}
+
+/** A stand-in Ollama that streams a scripted reply per call. */
+function makeFakeClient(
+  reply: (call: FakeCall, index: number) => string | Promise<string>
+): { client: ConstructorParameters<typeof MultiAgentService>[0]; calls: FakeCall[] } {
+  const calls: FakeCall[] = [];
   const client = {
-    async generate(params: { onToken?: (chunk: string, full: string) => void }): Promise<string> {
+    async generate(params: {
+      prompt: string;
+      think?: boolean;
+      numPredict?: number;
+      onToken?: (chunk: string, full: string) => void;
+    }): Promise<string> {
+      const index = calls.length;
+      calls.push({ prompt: params.prompt, think: params.think, numPredict: params.numPredict });
+      const text = await reply({ prompt: params.prompt, think: params.think, numPredict: params.numPredict }, index);
       let full = '';
-      for (const chunk of ['alpha ', 'beta ', 'gamma']) {
+      for (const chunk of text.match(/.{1,8}/gs) ?? []) {
         full += chunk;
         params.onToken?.(chunk, full);
       }
       return full;
-    }
+    },
+    getCurrentModel: () => 'fake-model'
   } as unknown as ConstructorParameters<typeof MultiAgentService>[0];
+  return { client, calls };
+}
 
-  const codeIndex = {
-    async buildPromptContext(): Promise<string> { return 'context'; }
-  } as unknown as ConstructorParameters<typeof MultiAgentService>[1];
+const fakeCodeIndex = {
+  async buildPromptContext(): Promise<string> { return 'context'; }
+} as unknown as ConstructorParameters<typeof MultiAgentService>[1];
 
-  const activity = {
-    begin: () => 'step',
-    update: () => undefined,
-    succeed: () => undefined,
-    fail: () => undefined,
-    cancel: () => undefined,
-    cancelRunning: () => undefined,
-    info: () => undefined,
-    run: async <T>(_label: string, task: (step: { update: (detail: string) => void }) => Promise<T>) =>
-      task({ update: () => undefined }),
-    reset: () => undefined,
-    snapshot: () => [],
-    hasRunningSteps: () => false
-  } as unknown as ConstructorParameters<typeof MultiAgentService>[2];
+const fakeActivity = {
+  begin: () => 'step',
+  update: () => undefined,
+  succeed: () => undefined,
+  fail: () => undefined,
+  cancel: () => undefined,
+  cancelRunning: () => undefined,
+  info: () => undefined,
+  run: async <T>(_label: string, task: (step: { update: (detail: string) => void }) => Promise<T>) =>
+    task({ update: () => undefined }),
+  reset: () => undefined,
+  snapshot: () => [],
+  hasRunningSteps: () => false
+} as unknown as ConstructorParameters<typeof MultiAgentService>[2];
+
+function fakeSettings(overrides: Record<string, unknown> = {}): ConstructorParameters<typeof MultiAgentService>[3] {
+  return {
+    model: 'fake-model',
+    maxTokens: 2048,
+    contextLength: 8192,
+    timeoutMs: 90_000,
+    queueTimeoutMs: 600_000,
+    delegationMode: 'auto',
+    agentsMaxCount: 5,
+    agentsMaxParallel: 2,
+    agentMaxTokens: 900,
+    ...overrides
+  } as unknown as ConstructorParameters<typeof MultiAgentService>[3];
+}
+
+const ROUTE_JSON = '{"fanOut":true,"reason":"needs three lenses","agents":["research","implementation","quality"]}';
+
+test('the router splits a request and reports every task, synthesis included', async () => {
+  const { client, calls } = makeFakeClient((call, index) =>
+    index === 0 ? ROUTE_JSON : `findings for call ${index}`
+  );
 
   const snapshots: DelegatedAgentProgress[][] = [];
-  const service = new MultiAgentService(client, codeIndex, activity);
-  const result = await service.runDelegatedTask('add a right-hand task panel', agents => snapshots.push(agents));
+  const service = new MultiAgentService(client, fakeCodeIndex, fakeActivity, fakeSettings());
+  const result = await service.runDelegatedTask('add a right-hand task panel to the terminal UI', agents =>
+    snapshots.push(agents)
+  );
 
-  /* The first snapshot lands before any model call, so the task list is
+  /* The first snapshot lands before any agent call, so the task list is
      visible while the shared context is still being built. */
   assert.ok(snapshots.length >= 2);
-  assert.deepStrictEqual(
-    snapshots[0].map(task => task.status),
-    ['queued', 'queued', 'queued', 'queued']
-  );
-  assert.strictEqual(snapshots[0][3].id, 'synthesis');
+  assert.deepStrictEqual(snapshots[0].map(task => task.id), [
+    'research',
+    'implementation',
+    'quality',
+    'synthesis'
+  ]);
 
   const final = snapshots[snapshots.length - 1];
   assert.ok(final.every(task => task.status === 'completed'), 'every task should finish');
@@ -442,5 +516,363 @@ test('delegated runs publish live per-task progress, synthesis included', async 
   /* Synthesis is reported, never returned as an agent. */
   assert.strictEqual(result.agents.length, 3);
   assert.ok(!result.agents.some(agent => agent.id === 'synthesis'));
-  assert.strictEqual(result.synthesis, 'alpha beta gamma');
+  assert.ok(result.synthesis.startsWith('findings for call'));
+  assert.strictEqual(result.decision.source, 'planner');
+
+  /* One router call, three agents, one synthesis. */
+  assert.strictEqual(calls.length, 5);
+});
+
+test('sub-agents run with reasoning off and the synthesis keeps it on', async () => {
+  const { client, calls } = makeFakeClient((call, index) => (index === 0 ? ROUTE_JSON : 'ok'));
+  const service = new MultiAgentService(client, fakeCodeIndex, fakeActivity, fakeSettings());
+  await service.runDelegatedTask('refactor the settings layering so hosts cannot drift', () => undefined);
+
+  const [router, ...rest] = calls;
+  const synthesis = rest[rest.length - 1];
+  const agents = rest.slice(0, -1);
+
+  assert.strictEqual(router.think, false, 'routing is a classification, not a chat turn');
+  assert.ok(agents.length > 0);
+  assert.ok(agents.every(call => call.think === false), 'a sub-agent must not spend its budget on reasoning');
+  assert.ok(agents.every(call => call.numPredict === 900));
+  assert.strictEqual(synthesis.think, undefined, 'the answer the user reads keeps the model default');
+  assert.strictEqual(synthesis.numPredict, 2048);
+});
+
+test('a fan-out never exceeds maxParallel in-flight agents', async () => {
+  let inFlight = 0;
+  let peak = 0;
+  const client = {
+    async generate(params: { prompt: string; onToken?: (chunk: string, full: string) => void }): Promise<string> {
+      if (params.prompt.includes('You route one request')) {
+        return '{"fanOut":true,"reason":"wide","agents":["research","context-scout","implementation","quality","security"]}';
+      }
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise(resolve => setTimeout(resolve, 5));
+      inFlight -= 1;
+      params.onToken?.('x', 'x');
+      return 'x';
+    },
+    getCurrentModel: () => 'fake-model'
+  } as unknown as ConstructorParameters<typeof MultiAgentService>[0];
+
+  const service = new MultiAgentService(client, fakeCodeIndex, fakeActivity, fakeSettings({ agentsMaxParallel: 2 }));
+  const result = await service.runDelegatedTask('audit the whole transport layer end to end', () => undefined);
+
+  assert.strictEqual(result.agents.length, 5);
+  /* Ollama generates for one request at a time; an unbounded fan-out only
+     buries the later agents in its queue. */
+  assert.ok(peak <= 2, `at most 2 agents in flight, saw ${peak}`);
+});
+
+test('agents that are queued behind the pool report waiting, not running', async () => {
+  const { client } = makeFakeClient(async (call, index) => {
+    if (index === 0) {
+      return '{"fanOut":true,"reason":"wide","agents":["research","context-scout","implementation","quality"]}';
+    }
+    await new Promise(resolve => setTimeout(resolve, 5));
+    return 'ok';
+  });
+
+  const snapshots: DelegatedAgentProgress[][] = [];
+  const service = new MultiAgentService(client, fakeCodeIndex, fakeActivity, fakeSettings({ agentsMaxParallel: 2 }));
+  await service.runDelegatedTask('rework the plan gate across both hosts', agents => snapshots.push(agents));
+
+  const sawWaiting = snapshots.some(snapshot =>
+    snapshot.some(task => task.id !== 'synthesis' && task.status === 'waiting')
+  );
+  assert.ok(sawWaiting, 'a queued agent must read as waiting rather than looking hung');
+});
+
+test('a failed agent is retried once with a larger answer budget', async () => {
+  let researchAttempts = 0;
+  const { client } = makeFakeClient(call => {
+    if (call.prompt.includes('You route one request')) {
+      return ROUTE_JSON;
+    }
+    if (call.prompt.includes('You are the Research Agent')) {
+      researchAttempts += 1;
+      if (researchAttempts === 1) {
+        throw new Error('Ollama did not start responding within 600s');
+      }
+      return 'recovered findings';
+    }
+    return 'ok';
+  });
+
+  const service = new MultiAgentService(client, fakeCodeIndex, fakeActivity, fakeSettings());
+  const result = await service.runDelegatedTask('add RAM and CPU limits to the CLI', () => undefined);
+
+  assert.strictEqual(researchAttempts, 2, 'the first failure should be retried');
+  const research = result.agents.find(agent => agent.id === 'research');
+  assert.strictEqual(research?.status, 'completed');
+  assert.strictEqual(research?.attempt, 2);
+});
+
+test('one dead agent still yields an answer, and the others are named as covered', async () => {
+  const { client } = makeFakeClient(call => {
+    if (call.prompt.includes('You route one request')) {
+      return ROUTE_JSON;
+    }
+    if (call.prompt.includes('You are the Quality Agent')) {
+      throw new Error('Ollama: HTTP 500 Internal Server Error');
+    }
+    return 'usable findings';
+  });
+
+  const service = new MultiAgentService(client, fakeCodeIndex, fakeActivity, fakeSettings());
+  const result = await service.runDelegatedTask('wire the queue timeout through both hosts', () => undefined);
+
+  assert.ok(result.synthesis.trim(), 'a partial fan-out must still produce an answer');
+  assert.strictEqual(result.agents.filter(agent => agent.status === 'failed').length, 1);
+  assert.strictEqual(result.agents.filter(agent => agent.status === 'completed').length, 2);
+});
+
+test('a fan-out where every agent dies throws instead of inventing an answer', async () => {
+  const { client } = makeFakeClient(call => {
+    if (call.prompt.includes('You route one request')) {
+      return ROUTE_JSON;
+    }
+    throw new Error('Ollama: HTTP 500 Internal Server Error');
+  });
+
+  const service = new MultiAgentService(client, fakeCodeIndex, fakeActivity, fakeSettings());
+  await assert.rejects(
+    () => service.runDelegatedTask('anything at all that needs real work', () => undefined),
+    /Every sub-agent failed/
+  );
+});
+
+test('delegation off answers in one pass, and /agents still overrides it', async () => {
+  const { client, calls } = makeFakeClient((call, index) => (index === 0 ? ROUTE_JSON : 'ok'));
+  const service = new MultiAgentService(client, fakeCodeIndex, fakeActivity, fakeSettings({ delegationMode: 'off' }));
+
+  const decision = await service.decide('rework the whole transport layer for streaming');
+  assert.strictEqual(decision.fanOut, false);
+  assert.strictEqual(calls.length, 0, 'a disabled router must not cost a model call');
+
+  const forced = await service.runDelegatedTask('rework the whole transport layer', () => undefined, { force: true });
+  assert.ok(forced.agents.length >= 2, '/agents overrides the setting');
+  assert.strictEqual(forced.decision.source, 'forced');
+});
+
+test('an unparseable router answer still splits the request', async () => {
+  const { client } = makeFakeClient((call, index) => (index === 0 ? 'I think we should probably...' : 'ok'));
+  const service = new MultiAgentService(client, fakeCodeIndex, fakeActivity, fakeSettings());
+
+  const decision = await service.decide('add a --cpu-limit flag to the CLI and wire it through');
+  assert.strictEqual(decision.fanOut, true, 'the router is an optimisation, never a gate');
+  assert.strictEqual(decision.source, 'heuristic');
+  assert.ok(decision.blueprints.length >= 2);
+});
+
+test('maxCount caps the split however many roles the router asks for', async () => {
+  const { client } = makeFakeClient((call, index) =>
+    index === 0
+      ? '{"fanOut":true,"reason":"wide","agents":["research","context-scout","implementation","quality","security"]}'
+      : 'ok'
+  );
+  const service = new MultiAgentService(client, fakeCodeIndex, fakeActivity, fakeSettings({ agentsMaxCount: 3 }));
+  const decision = await service.decide('audit every layer of this project at once');
+  assert.strictEqual(decision.blueprints.length, 3);
+});
+
+test('invented role ids are dropped rather than trusted', async () => {
+  const { client } = makeFakeClient((call, index) =>
+    index === 0 ? '{"fanOut":true,"agents":["research","wizard-agent","quality"]}' : 'ok'
+  );
+  const service = new MultiAgentService(client, fakeCodeIndex, fakeActivity, fakeSettings());
+  const decision = await service.decide('please review the settings layering in detail');
+  assert.deepStrictEqual(decision.blueprints.map(role => role.id), ['research', 'quality']);
+});
+
+test('trivial prompts skip the fan-out without asking the model', async () => {
+  const { client, calls } = makeFakeClient(() => ROUTE_JSON);
+  const service = new MultiAgentService(client, fakeCodeIndex, fakeActivity, fakeSettings());
+
+  const decision = await service.decide('hi');
+  assert.strictEqual(decision.fanOut, false);
+  assert.strictEqual(calls.length, 0, 'a greeting must not cost a router call');
+
+  assert.ok(isTrivialPrompt('thanks!'));
+  assert.ok(isTrivialPrompt('   '));
+  assert.ok(!isTrivialPrompt('why does the delegated run time out after 45 seconds'));
+});
+
+test('the heuristic reads questions about existing behaviour without planning a change', () => {
+  assert.deepStrictEqual(heuristicRoleIds('does the CLI already support a CPU limit?'), [
+    'research',
+    'context-scout'
+  ]);
+  assert.ok(heuristicRoleIds('add a CPU limit to the CLI').includes('implementation'));
+});
+
+test('the answer footer names the agents and marks the ones that produced nothing', () => {
+  const agents = [
+    { id: 'research', name: 'Research Agent', goal: '', status: 'completed' as const },
+    { id: 'quality', name: 'Quality Agent', goal: '', status: 'failed' as const }
+  ];
+
+  const footer = formatAgentFooter(agents);
+  assert.match(footer, /2 agents/);
+  assert.match(footer, /Research Agent/);
+  assert.match(footer, /~~Quality Agent~~/, 'a dead agent must not read as a covered angle');
+  assert.match(footer, /1 of 2 produced nothing/);
+
+  assert.strictEqual(formatAgentFooter([]), '', 'a single-pass answer carries no footer');
+});
+
+/* ──────────────────────── the real Ollama client ─────────────────────── */
+
+interface StubRequest {
+  body: Record<string, unknown>;
+}
+
+/**
+ * A local stand-in for the Ollama HTTP API, so the client's request shape and
+ * stream handling are exercised for real rather than through a fake.
+ */
+async function withStubOllama(
+  respond: (body: Record<string, unknown>, res: http.ServerResponse) => void,
+  run: (client: OllamaClient, seen: StubRequest[]) => Promise<void>
+): Promise<void> {
+  const seen: StubRequest[] = [];
+  const server = http.createServer((req, res) => {
+    let raw = '';
+    req.on('data', chunk => { raw += chunk; });
+    req.on('end', () => {
+      const body = JSON.parse(raw || '{}') as Record<string, unknown>;
+      seen.push({ body });
+      res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
+      respond(body, res);
+    });
+  });
+
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const port = (server.address() as { port: number }).port;
+  const settings = {
+    url: `http://127.0.0.1:${port}`,
+    model: 'stub',
+    systemPrompt: '',
+    temperature: 0.2,
+    maxTokens: 2048,
+    contextLength: 4096,
+    effort: 'high',
+    timeoutMs: 5_000,
+    queueTimeoutMs: 10_000,
+    assertUrlAllowed: () => undefined
+  } as unknown as ConstructorParameters<typeof OllamaClient>[0];
+
+  try {
+    await run(new OllamaClient(settings), seen);
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+}
+
+function streamLines(res: http.ServerResponse, lines: Array<Record<string, unknown>>): void {
+  for (const line of lines) {
+    res.write(`${JSON.stringify(line)}\n`);
+  }
+  res.end();
+}
+
+test('sampling options go where Ollama actually reads them', async () => {
+  await withStubOllama(
+    (_body, res) => streamLines(res, [{ response: 'hi' }, { done: true, done_reason: 'stop' }]),
+    async (client, seen) => {
+      await client.generate({ prompt: 'anything', stream: true });
+      const options = seen[0].body.options as Record<string, unknown>;
+      /* A top-level `temperature` is accepted and silently ignored by Ollama,
+         so the configured value only takes effect inside `options`. */
+      assert.strictEqual(seen[0].body.temperature, undefined);
+      assert.strictEqual(options.temperature, 0.2);
+      assert.strictEqual(options.num_predict, 2048);
+      assert.strictEqual(options.num_ctx, 4096);
+    }
+  );
+});
+
+test('per-request budgets and the reasoning switch reach the request body', async () => {
+  await withStubOllama(
+    (_body, res) => streamLines(res, [{ response: 'hi' }, { done: true, done_reason: 'stop' }]),
+    async (client, seen) => {
+      await client.generate({ prompt: 'anything', stream: true, think: false, numPredict: 900, numCtx: 8192 });
+      const options = seen[0].body.options as Record<string, unknown>;
+      assert.strictEqual(seen[0].body.think, false);
+      assert.strictEqual(options.num_predict, 900);
+      assert.strictEqual(options.num_ctx, 8192);
+
+      /* `think` is omitted rather than sent as undefined when unset, so a
+         model without the capability keeps its own default. */
+      await client.generate({ prompt: 'anything', stream: true });
+      assert.ok(!('think' in seen[1].body));
+    }
+  );
+});
+
+test('a reasoning-off call is not also told to reason', async () => {
+  await withStubOllama(
+    (_body, res) => streamLines(res, [{ response: 'hi' }, { done: true, done_reason: 'stop' }]),
+    async (client, seen) => {
+      await client.generate({ prompt: 'ROLE BRIEF', stream: true, think: false });
+      await client.generate({ prompt: 'ORDINARY TURN', stream: true });
+
+      assert.ok(
+        !String(seen[0].body.prompt).includes('Reasoning effort:'),
+        'think:false and "use deeper reasoning" are contradictory instructions'
+      );
+      assert.ok(String(seen[1].body.prompt).includes('Reasoning effort: high'));
+    }
+  );
+});
+
+test('reasoning tokens are reported separately and never join the answer', async () => {
+  await withStubOllama(
+    (_body, res) =>
+      streamLines(res, [
+        { thinking: 'let me think ' },
+        { thinking: 'about it' },
+        { response: 'the answer' },
+        { done: true, done_reason: 'stop' }
+      ]),
+    async client => {
+      let thinking = '';
+      const answer = await client.generate({
+        prompt: 'anything',
+        stream: true,
+        onThinking: (_chunk, full) => { thinking = full; }
+      });
+      assert.strictEqual(answer, 'the answer');
+      assert.strictEqual(thinking, 'let me think about it');
+    }
+  );
+});
+
+test('a budget spent entirely on reasoning is an error, not a blank answer', async () => {
+  await withStubOllama(
+    (_body, res) =>
+      streamLines(res, [{ thinking: 'thought and thought' }, { done: true, done_reason: 'length' }]),
+    async client => {
+      await assert.rejects(
+        () => client.generate({ prompt: 'anything', stream: true }),
+        (error: unknown) => {
+          assert.ok(isEmptyAnswerError(error), 'callers must be able to retry this specifically');
+          assert.strictEqual((error as EmptyAnswerError).doneReason, 'length');
+          assert.ok((error as EmptyAnswerError).thinkingChars > 0);
+          return true;
+        }
+      );
+    }
+  );
+});
+
+test('the prompt budget is sized from the real window, not a fixed constant', () => {
+  /* Overflowing the window makes Ollama drop the front of the prompt — which
+     is where the instructions are — so the budget must shrink with it. */
+  assert.ok(promptCharBudget(4096, 2048) < promptCharBudget(8192, 2048));
+  assert.ok(promptCharBudget(4096, 900) > promptCharBudget(4096, 2048));
+  assert.ok(promptCharBudget(512, 2048) >= 1_000, 'a tiny window still leaves a usable floor');
 });

@@ -30,7 +30,7 @@ export class Container {
   readonly activity = new ActivityReporter();
   readonly codeIndex = new CodeIndexStore(this.settings);
   readonly editService = new AgentEditService(this.client, this.codeIndex, this.activity);
-  readonly multiAgentService = new MultiAgentService(this.client, this.codeIndex, this.activity);
+  readonly multiAgentService = new MultiAgentService(this.client, this.codeIndex, this.activity, this.settings);
   readonly planService = new PlanService(this.client, this.codeIndex, this.activity);
   readonly conversationStore: ConversationStore;
   readonly tokenStore: TokenStore;

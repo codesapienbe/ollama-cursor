@@ -7,17 +7,29 @@
 
 export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'max';
 export type AgentMode = 'plan' | 'auto';
+/*  When a request is split across sub-agents.
+    `auto`   — a router decides per request: trivial asks answer directly,
+               substantial ones fan out. This is the default path, so the
+               split happens without anyone typing `/agents`.
+    `always` — every request that reaches the model fans out.
+    `off`    — only an explicit `/agents` command fans out.               */
+export type DelegationMode = 'auto' | 'always' | 'off';
 
 export const DEFAULT_URL = 'http://localhost:11434';
 export const DEFAULT_MODEL = 'qwen3.8:latest';
 export const DEFAULT_EFFORT: ReasoningEffort = 'medium';
 export const DEFAULT_MODE: AgentMode = 'plan';
+export const DEFAULT_DELEGATION_MODE: DelegationMode = 'auto';
+/*  Five is the ceiling the roles library is written for, and past it a local
+    model server spends all its time context-switching rather than answering. */
+export const MAX_DELEGATED_AGENTS = 5;
 export const DEFAULT_ALLOWED_HOSTS = ['localhost', '127.0.0.1', '::1'];
 export const DEFAULT_CODE_INDEX_EXCLUDE_GLOB =
   '**/{.git,node_modules,dist,build,out,target,coverage,.next,.ollama,.olliberty}/**';
 
 const VALID_EFFORTS: ReasoningEffort[] = ['minimal', 'low', 'medium', 'high', 'max'];
 const VALID_MODES: AgentMode[] = ['plan', 'auto'];
+const VALID_DELEGATION_MODES: DelegationMode[] = ['auto', 'always', 'off'];
 
 export function isReasoningEffort(value: string): value is ReasoningEffort {
   return VALID_EFFORTS.includes(value as ReasoningEffort);
@@ -25,6 +37,10 @@ export function isReasoningEffort(value: string): value is ReasoningEffort {
 
 export function isAgentMode(value: string): value is AgentMode {
   return VALID_MODES.includes(value as AgentMode);
+}
+
+export function isDelegationMode(value: string): value is DelegationMode {
+  return VALID_DELEGATION_MODES.includes(value as DelegationMode);
 }
 
 /** Every setting the shared engine is allowed to ask its host for. */
@@ -49,7 +65,14 @@ export interface OllibertySettings {
   readonly codeIndexExcludeGlob: string;
   readonly networkKillSwitchEnabled: boolean;
   readonly allowedHosts: string[];
+  /** Idle budget: how long a started stream may go quiet before it is dead. */
   readonly timeoutMs: number;
+  /** Queue budget: how long to wait for the model server's first token. */
+  readonly queueTimeoutMs: number;
+  readonly delegationMode: DelegationMode;
+  readonly agentsMaxCount: number;
+  readonly agentsMaxParallel: number;
+  readonly agentMaxTokens: number;
 
   setModel(model: string): Promise<void>;
   setEffort(effort: ReasoningEffort): Promise<void>;

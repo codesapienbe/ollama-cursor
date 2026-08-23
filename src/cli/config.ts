@@ -11,15 +11,19 @@ import * as path from 'path';
 import {
   AgentMode,
   DEFAULT_CODE_INDEX_EXCLUDE_GLOB,
+  DEFAULT_DELEGATION_MODE,
   DEFAULT_EFFORT,
   DEFAULT_MODE,
   DEFAULT_MODEL,
   DEFAULT_URL,
+  DelegationMode,
+  MAX_DELEGATED_AGENTS,
   OllibertySettings,
   ReasoningEffort,
   assertUrlAllowedFor,
   formatPrivacySummary,
   isAgentMode,
+  isDelegationMode,
   isReasoningEffort,
   normalizeAllowedHosts
 } from '../main/core/settingsContract';
@@ -36,6 +40,7 @@ export interface SettingsOverrides {
   autoApplyEdits?: boolean;
   streamResponses?: boolean;
   autoIndexWorkspace?: boolean;
+  delegation?: DelegationMode;
 }
 
 const CONFIG_KEYS = [
@@ -51,6 +56,11 @@ const CONFIG_KEYS = [
   'streamResponses',
   'autoApplyEdits',
   'timeoutMs',
+  'queueTimeoutMs',
+  'agents.delegation',
+  'agents.maxCount',
+  'agents.maxParallel',
+  'agents.maxTokens',
   'codeIndex.autoIndexWorkspace',
   'codeIndex.maxFiles',
   'codeIndex.maxFileSizeKb',
@@ -119,6 +129,12 @@ function envUrl(): string | undefined {
   return /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
 }
 
+/* Flag names stay short on the command line; config keys stay grouped. */
+const OVERRIDE_KEY_ALIASES: Record<string, string> = {
+  autoIndexWorkspace: 'codeIndex.autoIndexWorkspace',
+  delegation: 'agents.delegation'
+};
+
 function environmentLayer(): ConfigLayer {
   const layer: ConfigLayer = {};
   const url = envUrl();
@@ -137,6 +153,10 @@ function environmentLayer(): ConfigLayer {
   if (effort) {
     layer.effort = effort;
   }
+  const delegation = process.env.OLLIBERTY_DELEGATION?.trim().toLowerCase();
+  if (delegation) {
+    layer['agents.delegation'] = delegation;
+  }
   return layer;
 }
 
@@ -152,7 +172,7 @@ export class FileSettings implements OllibertySettings {
   ) {
     for (const [key, value] of Object.entries(overrides)) {
       if (value !== undefined) {
-        this.overrideLayer[key === 'autoIndexWorkspace' ? 'codeIndex.autoIndexWorkspace' : key] = value;
+        this.overrideLayer[OVERRIDE_KEY_ALIASES[key] ?? key] = value;
       }
     }
     this.reload();
@@ -209,7 +229,7 @@ export class FileSettings implements OllibertySettings {
   }
   get temperature(): number { return this.readNumber('temperature', 0.2, 0, 1); }
   get maxTokens(): number { return this.readNumber('maxTokens', 2048, 1, 8192); }
-  get contextLength(): number { return this.readNumber('contextLength', 4096, 512, 8192); }
+  get contextLength(): number { return this.readNumber('contextLength', 4096, 512, 131_072); }
 
   get effort(): ReasoningEffort {
     const effort = this.readString('effort', DEFAULT_EFFORT).trim().toLowerCase();
@@ -249,7 +269,27 @@ export class FileSettings implements OllibertySettings {
     const raw = this.read<unknown>('privacy.allowedHosts');
     return normalizeAllowedHosts(Array.isArray(raw) ? raw.filter((host): host is string => typeof host === 'string') : undefined);
   }
-  get timeoutMs(): number { return this.readNumber('timeoutMs', 45_000, 1_000, 600_000); }
+  /* Idle budget only: a stream that has started and then goes silent this
+     long is dead. The wait for the *first* token is queueTimeoutMs. */
+  get timeoutMs(): number { return this.readNumber('timeoutMs', 90_000, 5_000, 600_000); }
+  /* Ollama runs one request per loaded model at a time, so a fanned-out agent
+     can legitimately sit in the queue for minutes on a large local model.
+     Killing it at 45s is what turned a slow agent into a failed one. */
+  get queueTimeoutMs(): number { return this.readNumber('queueTimeoutMs', 600_000, 10_000, 3_600_000); }
+
+  get delegationMode(): DelegationMode {
+    const mode = this.readString('agents.delegation', DEFAULT_DELEGATION_MODE).trim().toLowerCase();
+    return isDelegationMode(mode) ? mode : DEFAULT_DELEGATION_MODE;
+  }
+  get agentsMaxCount(): number {
+    return this.readNumber('agents.maxCount', MAX_DELEGATED_AGENTS, 1, MAX_DELEGATED_AGENTS);
+  }
+  get agentsMaxParallel(): number {
+    return this.readNumber('agents.maxParallel', 2, 1, MAX_DELEGATED_AGENTS);
+  }
+  get agentMaxTokens(): number {
+    return this.readNumber('agents.maxTokens', 900, 128, 8192);
+  }
 
   async setModel(model: string): Promise<void> {
     await this.writeUserValue('model', model.trim() || DEFAULT_MODEL);
@@ -290,6 +330,42 @@ export class FileSettings implements OllibertySettings {
        the override for a key the user just changed on purpose. */
     delete this.overrideLayer[normalizedKey];
     this.reload();
+  }
+
+  /**
+   * Every configurable key with its effective value. Lives here rather than in
+   * the command that prints it, so adding a key to CONFIG_KEYS without giving
+   * it a value is a compile error instead of a `/config` line reading
+   * `undefined`.
+   */
+  snapshot(): Record<ConfigKey, unknown> {
+    return {
+      'url': this.url,
+      'model': this.model,
+      'mode': this.mode,
+      'systemPrompt': this.systemPrompt,
+      'temperature': this.temperature,
+      'maxTokens': this.maxTokens,
+      'contextLength': this.contextLength,
+      'effort': this.effort,
+      'showActivityFeed': this.showActivityFeed,
+      'streamResponses': this.streamResponses,
+      'autoApplyEdits': this.autoApplyEdits,
+      'timeoutMs': this.timeoutMs,
+      'queueTimeoutMs': this.queueTimeoutMs,
+      'agents.delegation': this.delegationMode,
+      'agents.maxCount': this.agentsMaxCount,
+      'agents.maxParallel': this.agentsMaxParallel,
+      'agents.maxTokens': this.agentMaxTokens,
+      'codeIndex.autoIndexWorkspace': this.autoIndexWorkspace,
+      'codeIndex.maxFiles': this.codeIndexMaxFiles,
+      'codeIndex.maxFileSizeKb': this.codeIndexMaxFileSizeKb,
+      'codeIndex.previewLines': this.codeIndexPreviewLines,
+      'codeIndex.staleAfterMinutes': this.codeIndexStaleAfterMinutes,
+      'codeIndex.excludeGlob': this.codeIndexExcludeGlob,
+      'privacy.networkKillSwitchEnabled': this.networkKillSwitchEnabled,
+      'privacy.allowedHosts': this.allowedHosts
+    };
   }
 
   /** Where a value is coming from — shown by `/config`. */

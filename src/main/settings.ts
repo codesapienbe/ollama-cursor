@@ -10,15 +10,19 @@ import * as vscode from 'vscode';
 import {
   AgentMode,
   DEFAULT_CODE_INDEX_EXCLUDE_GLOB,
+  DEFAULT_DELEGATION_MODE,
   DEFAULT_EFFORT,
   DEFAULT_MODE,
   DEFAULT_MODEL,
   DEFAULT_URL,
+  DelegationMode,
+  MAX_DELEGATED_AGENTS,
   OllibertySettings,
   ReasoningEffort,
   assertUrlAllowedFor,
   formatPrivacySummary,
   isAgentMode,
+  isDelegationMode,
   isReasoningEffort,
   normalizeAllowedHosts
 } from './core/settingsContract';
@@ -26,9 +30,10 @@ import {
 export {
   DEFAULT_MODEL,
   isAgentMode,
+  isDelegationMode,
   isReasoningEffort
 };
-export type { AgentMode, OllibertySettings, ReasoningEffort };
+export type { AgentMode, DelegationMode, OllibertySettings, ReasoningEffort };
 
 export class Settings implements OllibertySettings {
   private cfg = vscode.workspace.getConfiguration('olliberty');
@@ -72,7 +77,30 @@ export class Settings implements OllibertySettings {
   get allowedHosts(): string[] {
     return normalizeAllowedHosts(this.cfg.get<string[]>('privacy.allowedHosts'));
   }
-  get timeoutMs(): number     { return 45_000; }   // hard-coded for simplicity
+  /* Idle budget only: a stream that has started and then goes silent this
+     long is dead. The wait for the *first* token is queueTimeoutMs. */
+  get timeoutMs(): number {
+    return clampNumber(this.cfg.get<number>('timeoutMs'), 90_000, 5_000, 600_000);
+  }
+  /* Ollama runs one request per loaded model at a time, so a fanned-out agent
+     can legitimately sit in the queue for minutes on a large local model.
+     Killing it at 45s is what turned a slow agent into a failed one. */
+  get queueTimeoutMs(): number {
+    return clampNumber(this.cfg.get<number>('queueTimeoutMs'), 600_000, 10_000, 3_600_000);
+  }
+  get delegationMode(): DelegationMode {
+    const mode = (this.cfg.get<string>('agents.delegation') ?? DEFAULT_DELEGATION_MODE).trim().toLowerCase();
+    return isDelegationMode(mode) ? mode : DEFAULT_DELEGATION_MODE;
+  }
+  get agentsMaxCount(): number {
+    return clampNumber(this.cfg.get<number>('agents.maxCount'), MAX_DELEGATED_AGENTS, 1, MAX_DELEGATED_AGENTS);
+  }
+  get agentsMaxParallel(): number {
+    return clampNumber(this.cfg.get<number>('agents.maxParallel'), 2, 1, MAX_DELEGATED_AGENTS);
+  }
+  get agentMaxTokens(): number {
+    return clampNumber(this.cfg.get<number>('agents.maxTokens'), 900, 128, 8192);
+  }
 
   async setModel(model: string): Promise<void> {
     await vscode.workspace.getConfiguration('olliberty').update(
@@ -117,4 +145,12 @@ export class Settings implements OllibertySettings {
   privacySummary(): string {
     return formatPrivacySummary(this);
   }
+}
+
+function clampNumber(raw: unknown, fallback: number, min: number, max: number): number {
+  const parsed = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, parsed));
 }

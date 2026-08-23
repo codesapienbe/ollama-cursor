@@ -40,7 +40,7 @@ both.
 - **🕸️ Graphify Context Import**: Ingests Graphify graph JSON from the opened project and uses structural graph context during chat prompts
 - **⚡ Inline Code Completion**: Real-time code suggestions as you type
 - **🛠️ Approval-First File Editing**: Use `/edit` to generate local file changes with in-IDE diff previews, then explicitly approve or reject
-- **🤝 Delegated Parallel Agents**: Use `/agents <goal>` to split analysis into parallel sub-agents on the same local model and synthesize one final answer
+- **🤝 Delegated Sub-Agents by Default**: Every substantial request is split across up to 5 role-specific sub-agents on the same local model and merged into one answer — no command needed. `/agents <goal>` forces the split for a request that would otherwise answer in one pass; `--no-agents` turns it off
 - **🛡️ Network Kill Switch**: Restrict outbound plugin requests to an allowed host list for strict local privacy
 - **🔐 Secret Scrubbing + Token Vault**: Sensitive values in chat are auto-redacted to `******`; store tokens via `/token` and reference them as placeholders
 - **🎯 Smart Error Handling**: Comprehensive error handling with user-friendly messages
@@ -117,7 +117,7 @@ context — the CLI's equivalent of the plugin's "active editor" context.
 
 - **Plans** render as numbered steps with the files they expect to touch and the risks the model flagged. Nothing runs until `/accept`.
 - **Diffs** render as file panels with real line numbers, hunk headers, and tinted add/remove rows — for proposals, for applied changes, and for any fenced `diff` block in a model reply.
-- **Sub-agents** render as a live tree with per-agent status and detail while they run in parallel.
+- **Sub-agents** render as a live tree with per-agent status and detail. Agents held back by the concurrency limit read as `waiting` rather than looking hung, and a retried agent says so.
 - **Activity** shows every step (indexing, context retrieval, model calls, per-file writes) with durations while a turn is in flight, and is mirrored to `.olliberty/cli-activity.log`.
 
 ### Commands
@@ -158,9 +158,10 @@ olliberty -y "/edit add a subtract function to math.js"
 `-y` is the only way to get a file written without a human approval step, and
 it exists for scripting. Interactive sessions always show the diff first.
 
-Options: `-m/--model`, `--url`, `--mode plan|auto`, `--effort`, `-C/--cwd`,
-`-y/--yes`, `--no-stream`, `--no-index`, `--no-color`, `--plain`, `--json`,
-`-h/--help`, `-v/--version`.
+Options: `-m/--model`, `--url`, `--mode plan|auto`, `--effort`,
+`--agents auto|always|off`, `--no-agents`, `-C/--cwd`, `-y/--yes`,
+`--no-stream`, `--no-index`, `--no-color`, `--plain`, `--json`, `-h/--help`,
+`-v/--version`.
 
 ### Configuration
 
@@ -169,7 +170,7 @@ Settings are the same keys as the VS Code settings, layered lowest to highest:
 1. defaults
 2. `~/.olliberty/config.json` (user)
 3. `<workspace>/.olliberty/config.json` (project, commit it to share with your team)
-4. environment — `OLLIBERTY_URL` or `OLLAMA_HOST`, `OLLIBERTY_MODEL`, `OLLIBERTY_MODE`, `OLLIBERTY_EFFORT`
+4. environment — `OLLIBERTY_URL` or `OLLAMA_HOST`, `OLLIBERTY_MODEL`, `OLLIBERTY_MODE`, `OLLIBERTY_EFFORT`, `OLLIBERTY_DELEGATION`
 5. command-line flags
 
 ```json
@@ -177,7 +178,9 @@ Settings are the same keys as the VS Code settings, layered lowest to highest:
   "model": "qwen3.8:latest",
   "mode": "plan",
   "effort": "medium",
-  "timeoutMs": 180000,
+  "timeoutMs": 90000,
+  "queueTimeoutMs": 600000,
+  "agents": { "delegation": "auto", "maxCount": 5, "maxParallel": 2 },
   "codeIndex": { "maxFiles": 800 },
   "privacy": { "allowedHosts": ["localhost", "127.0.0.1", "::1"] }
 }
@@ -188,10 +191,45 @@ config file — the CLI's equivalent of the extension writing to global
 settings. `OLLIBERTY_HOME` relocates the whole user directory, which is handy
 for throwaway or per-project state.
 
-`timeoutMs` is worth raising (it defaults to 45 s, matching the plugin) if you
-run `/agents` against a large model: three sub-agents plus a synthesis pass
-contend for the same Ollama LLM server, and a slow first token can otherwise time
-one of them out.
+### Sub-agents
+
+Splitting a request across sub-agents is the **default path**, not a separate
+mode. Every request is routed first: greetings and one-liners answer in a
+single pass, and anything with real work in it is split across 2–5 role
+specific agents — research, context scout, implementation, interface design,
+integration, quality, performance, security — whose findings are merged into
+one answer. The answer reads like an ordinary reply; the agents show up in the
+task panel, and a footer names them so you can see which angles were covered.
+
+```bash
+olliberty --agents always "review the settings layering"   # split every request
+olliberty --no-agents "what does promptCharBudget do?"     # one pass, always
+```
+
+| Key | Default | What it does |
+|---|---|---|
+| `agents.delegation` | `auto` | `auto` routes per request, `always` splits everything, `off` only splits on `/agents` |
+| `agents.maxCount` | `5` | Most agents one request may be split across |
+| `agents.maxParallel` | `2` | How many agents may have a request in flight at once |
+| `agents.maxTokens` | `900` | Answer budget per agent |
+
+Three things about running this on a local model server are worth knowing,
+because they are why the defaults look the way they do:
+
+- **Ollama generates for one request per loaded model at a time.** Raising
+  `agents.maxParallel` mostly deepens its queue rather than adding
+  parallelism, so agents are run two at a time by default and the rest report
+  `waiting`.
+- **The wait for a first token is not a hang.** `timeoutMs` (default 90 s) is
+  the *idle* budget — how long a stream that has already started may go quiet.
+  Waiting in the server's queue is governed by `queueTimeoutMs` (default
+  10 min). Sharing one 45 s budget between the two is what used to fail the
+  last agent of a fan-out.
+- **Reasoning models spend their token budget before answering.** Sub-agents
+  therefore run with reasoning disabled, so the whole budget goes to findings
+  the synthesis can use. Only the synthesis — the part you read — keeps
+  reasoning on. A larger `contextLength` lets more agent findings be merged at
+  once, at the cost of memory on the Ollama host.
 
 While `/agents` runs, the sub-tasks get their own column on the right of the
 frame: one coloured block per task — spinner, elapsed time, streamed character
@@ -386,6 +424,10 @@ Configure Olliberty through VS Code settings:
   "olliberty.temperature": 0.2,
   "olliberty.maxTokens": 2048,
   "olliberty.contextLength": 4096,
+  "olliberty.queueTimeoutMs": 600000,
+  "olliberty.agents.delegation": "auto",
+  "olliberty.agents.maxCount": 5,
+  "olliberty.agents.maxParallel": 2,
   "olliberty.autoApplyEdits": false,
   "olliberty.codeIndex.autoIndexWorkspace": true,
   "olliberty.codeIndex.maxFiles": 500,
@@ -408,7 +450,13 @@ Configure Olliberty through VS Code settings:
 - **`olliberty.systemPrompt`**: System prompt sent with every request (default: empty, i.e. none)
 - **`olliberty.temperature`**: Sampling temperature 0.0-1.0 (default: 0.2)
 - **`olliberty.maxTokens`**: Maximum tokens to generate (default: 2048)
-- **`olliberty.contextLength`**: Maximum context length (default: 4096)
+- **`olliberty.contextLength`**: Maximum context length (default: 4096, max 131072). Larger windows let a delegated run merge more sub-agent findings at once, at the cost of memory on the Ollama host
+- **`olliberty.timeoutMs`**: Idle budget — how long an already-streaming response may go silent (default: 90000)
+- **`olliberty.queueTimeoutMs`**: Queue budget — how long to wait for the model server's first token (default: 600000)
+- **`olliberty.agents.delegation`**: When a request is split across sub-agents — `auto` | `always` | `off` (default: `auto`)
+- **`olliberty.agents.maxCount`**: Most sub-agents one request may be split across (default: 5)
+- **`olliberty.agents.maxParallel`**: Sub-agents with a request in flight at once (default: 2)
+- **`olliberty.agents.maxTokens`**: Answer budget per sub-agent (default: 900)
 - **`olliberty.autoApplyEdits`**: If `true`, `/edit` proposals are written immediately without explicit approval (default: `false`). Ignored while `olliberty.mode` is `plan`
 - **`olliberty.codeIndex.*`**: Controls local workspace indexing size, freshness, and exclusions
 - **`olliberty.privacy.networkKillSwitchEnabled`**: If enabled, outbound plugin calls are blocked unless host is allowed
@@ -439,7 +487,7 @@ Inside the chat widget, you can control model selection without opening settings
 - `/edit <instruction>` → generate local file edits and open in-IDE diff previews
 - `/approve` → apply pending `/edit` proposal
 - `/reject` → discard pending `/edit` proposal
-- `/agents <goal>` → run delegated parallel sub-agents and synthesize one final response
+- `/agents <goal>` → force the sub-agent split for a request the router would answer in one pass
 - `/path` → show current chat path scope (defaults to active workspace root)
 - `/path <dir-or-file>` → scope chat context to a workspace-relative location
 - `/path reset` → clear override and return to workspace root scope

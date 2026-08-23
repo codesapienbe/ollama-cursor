@@ -13,8 +13,25 @@ export interface GenerateParams {
   stream?: boolean;
   /** Called for every chunk while streaming, so callers can render partial output. */
   onToken?: (chunk: string, fullResponse: string) => void;
+  /* Reasoning models stream their scratchpad in a separate `thinking` field.
+     It never counts as the answer, but it proves the model is alive while the
+     answer is still empty. */
+  onThinking?: (chunk: string, fullThinking: string) => void;
   /** Aborts the in-flight request when the user interrupts the run. */
   signal?: AbortSignal;
+  /* Reasoning switch for models that support it. Sub-agents set this to false:
+     their whole token budget then goes to the answer instead of a scratchpad
+     nobody reads, which is both faster and impossible to come back empty.
+     Left undefined the field is omitted and the model keeps its default. */
+  think?: boolean;
+  /** Per-request answer budget; falls back to the configured maxTokens. */
+  numPredict?: number;
+  /** Per-request context window; falls back to the configured contextLength. */
+  numCtx?: number;
+  /* Ollama serialises requests per loaded model, so a fanned-out agent can sit
+     in the server queue for minutes before its first token. That wait is not a
+     hang and must not share a budget with the between-token idle timeout. */
+  firstTokenTimeoutMs?: number;
 }
 
 /** Thrown when the user stops a run; callers treat this as "not an error". */
@@ -29,6 +46,43 @@ export function isAbortedError(error: unknown): boolean {
   return error instanceof AbortedError;
 }
 
+/**
+ * The request succeeded but the answer is empty — a reasoning model spent its
+ * whole `num_predict` budget on thinking tokens. Distinct from a failure so
+ * callers can retry with reasoning off instead of reporting a blank answer.
+ */
+export class EmptyAnswerError extends Error {
+  constructor(
+    readonly thinkingChars: number,
+    readonly doneReason: string,
+    message = 'The model returned reasoning but no answer. Raise maxTokens or turn reasoning off for this call.'
+  ) {
+    super(message);
+    this.name = 'EmptyAnswerError';
+  }
+}
+
+export function isEmptyAnswerError(error: unknown): boolean {
+  return error instanceof EmptyAnswerError;
+}
+
+/*  Rough characters-per-token for source code and English prose. Deliberately
+    conservative: overshooting means Ollama silently drops the front of the
+    prompt, which is where the instructions live.                            */
+const CHARS_PER_TOKEN = 3.2;
+/** Tokens held back for the system prompt, effort preamble and framing. */
+const PROMPT_OVERHEAD_TOKENS = 320;
+
+/**
+ * How many characters of prompt actually fit next to an answer of
+ * `numPredict` tokens inside a `numCtx` window. Callers size their context
+ * blocks with this instead of a fixed constant that ignores the window.
+ */
+export function promptCharBudget(numCtx: number, numPredict: number): number {
+  const usableTokens = numCtx - numPredict - PROMPT_OVERHEAD_TOKENS;
+  return Math.max(1_000, Math.floor(usableTokens * CHARS_PER_TOKEN));
+}
+
 export class OllamaClient {
   private readonly settings: OllibertySettings;
 
@@ -40,23 +94,37 @@ export class OllamaClient {
     return url.protocol === 'https:' ? https : http;
   }
 
-  /* High-level streaming function used by UI components */
+  /**
+   * Streams one completion. Resolves with the answer text only — reasoning
+   * tokens are reported through `onThinking` and never concatenated into it.
+   */
   async generate(params: GenerateParams, abort?: AbortSignal): Promise<string> {
     const signal = params.signal ?? abort;
     if (signal?.aborted) {
       throw new AbortedError();
     }
 
-    const prompt = this.applyEffortToPrompt(params.prompt);
+    const numPredict = params.numPredict ?? this.settings.maxTokens;
+    const numCtx = params.numCtx ?? this.settings.contextLength;
+    /* A call with reasoning explicitly off carries its own output contract —
+       a role brief, or "return only this JSON". Prefixing it with "use deeper
+       reasoning" would contradict both the contract and `think: false`. */
+    const prompt = params.think === false
+      ? params.prompt
+      : this.applyEffortToPrompt(params.prompt);
     const requestData = JSON.stringify({
       model: this.settings.model,
       prompt,
       ...(this.settings.systemPrompt ? { system: this.settings.systemPrompt } : {}),
-      temperature: this.settings.temperature,
+      ...(params.think === undefined ? {} : { think: params.think }),
       stream: params.stream ?? false,
       options: {
-        num_predict: this.settings.maxTokens,
-        num_ctx: this.settings.contextLength,
+        /* Ollama reads sampling parameters from `options` only. A top-level
+           `temperature` is accepted and silently ignored, so the configured
+           value never reached the model. */
+        temperature: this.settings.temperature,
+        num_predict: numPredict,
+        num_ctx: numCtx,
       },
     });
 
@@ -70,9 +138,22 @@ export class OllamaClient {
       }
     };
 
+    /* Two budgets, not one. The first covers the wait in Ollama's queue (a
+       cold 27B model behind two other requests is minutes, not seconds); the
+       second covers silence *after* generation has started, which is the only
+       silence that actually means something is wrong. */
+    const queueBudget = Math.max(
+      params.firstTokenTimeoutMs ?? this.settings.queueTimeoutMs,
+      this.settings.timeoutMs
+    );
+    const idleBudget = this.settings.timeoutMs;
+
     return new Promise<string>((rawResolve, rawReject) => {
       let settled = false;
       let onAbort: (() => void) | undefined;
+      /* Which budget a timeout belongs to, so the message names the real
+         problem: a queue that never got to us, or a stream that went quiet. */
+      let streamingStarted = false;
 
       const cleanup = () => {
         if (onAbort && signal) {
@@ -108,31 +189,76 @@ export class OllamaClient {
 
         let responseData = '';
         let fullResponse = '';
+        let fullThinking = '';
+        let doneReason = '';
+        let sawFirstToken = false;
+
+        /* The queue wait is over the moment anything generated arrives, so the
+           socket drops to the tighter idle budget from here on. */
+        const markFirstToken = () => {
+          if (sawFirstToken) { return; }
+          sawFirstToken = true;
+          streamingStarted = true;
+          req.setTimeout(idleBudget);
+        };
+
+        const consume = (line: string): boolean => {
+          let parsed: { response?: unknown; thinking?: unknown; done?: unknown; done_reason?: unknown };
+          try {
+            parsed = JSON.parse(line);
+          } catch {
+            /* A partial line: the next chunk completes it. */
+            return false;
+          }
+
+          if (typeof parsed.thinking === 'string' && parsed.thinking) {
+            markFirstToken();
+            fullThinking += parsed.thinking;
+            params.onThinking?.(parsed.thinking, fullThinking);
+          }
+          if (typeof parsed.response === 'string' && parsed.response) {
+            markFirstToken();
+            fullResponse += parsed.response;
+            params.onToken?.(parsed.response, fullResponse);
+          }
+          if (typeof parsed.done_reason === 'string') {
+            doneReason = parsed.done_reason;
+          }
+          return parsed.done === true;
+        };
+
+        const finish = () => {
+          if (fullResponse.trim()) {
+            resolve(fullResponse);
+            return;
+          }
+          /* Reasoning arrived but no answer did: the budget went to the
+             scratchpad. Callers retry with reasoning off rather than showing
+             the user an empty turn. */
+          if (fullThinking.trim()) {
+            reject(new EmptyAnswerError(fullThinking.length, doneReason || 'unknown'));
+            return;
+          }
+          reject(new Error('No response received from Ollama'));
+        };
 
         res.on('data', (chunk) => {
+          if (!params.stream) {
+            responseData += chunk.toString();
+            return;
+          }
+
           responseData += chunk.toString();
-          
-          // Handle streaming response
-          if (params.stream) {
-            const lines = responseData.split('\n');
-            responseData = lines.pop() || ''; // Keep incomplete line
-            
-            for (const line of lines) {
-              if (line.trim()) {
-                try {
-                  const parsed = JSON.parse(line);
-                  if (parsed.response) {
-                    fullResponse += parsed.response;
-                    params.onToken?.(parsed.response as string, fullResponse);
-                  }
-                  if (parsed.done) {
-                    resolve(fullResponse);
-                    return;
-                  }
-                } catch (e) {
-                  // Ignore JSON parsing errors for partial responses
-                }
-              }
+          const lines = responseData.split('\n');
+          responseData = lines.pop() ?? '';
+
+          for (const line of lines) {
+            if (!line.trim()) {
+              continue;
+            }
+            if (consume(line)) {
+              finish();
+              return;
             }
           }
         });
@@ -140,16 +266,24 @@ export class OllamaClient {
         res.on('end', () => {
           if (!params.stream) {
             try {
-              const parsed = JSON.parse(responseData);
-              resolve(parsed.response || responseData);
-            } catch (e) {
+              const parsed = JSON.parse(responseData) as {
+                response?: unknown;
+                thinking?: unknown;
+                done_reason?: unknown;
+              };
+              fullResponse = typeof parsed.response === 'string' ? parsed.response : '';
+              fullThinking = typeof parsed.thinking === 'string' ? parsed.thinking : '';
+              doneReason = typeof parsed.done_reason === 'string' ? parsed.done_reason : '';
+              if (!fullResponse.trim() && !fullThinking.trim()) {
+                resolve(responseData);
+                return;
+              }
+            } catch {
               resolve(responseData);
+              return;
             }
-          } else if (fullResponse) {
-            resolve(fullResponse);
-          } else {
-            reject(new Error('No response received from Ollama'));
           }
+          finish();
         });
 
         res.on('error', (err) => {
@@ -163,7 +297,7 @@ export class OllamaClient {
 
       req.on('timeout', () => {
         req.destroy();
-        reject(new Error('Request to Ollama timed out'));
+        reject(new Error(this.formatTimeoutError(streamingStarted, streamingStarted ? idleBudget : queueBudget)));
       });
 
       /* User interruption: kill the socket so Ollama stops generating,
@@ -176,7 +310,7 @@ export class OllamaClient {
         signal.addEventListener('abort', onAbort, { once: true });
       }
 
-      req.setTimeout(this.settings.timeoutMs);
+      req.setTimeout(queueBudget);
       req.write(requestData);
       req.end();
     });
@@ -299,6 +433,17 @@ export class OllamaClient {
     };
 
     return `[Reasoning effort: ${this.settings.effort}] ${instructionsByEffort[this.settings.effort]}\n\n${prompt}`;
+  }
+
+  /* Two very different failures used to share one message. Naming which
+     budget expired is the difference between "raise the timeout" and "the
+     model server is wedged". */
+  private formatTimeoutError(streamingStarted: boolean, budgetMs: number): string {
+    const seconds = Math.round(budgetMs / 1000);
+    return streamingStarted
+      ? `Ollama stopped sending tokens for ${seconds}s. Raise olliberty.timeoutMs if the model is simply slow.`
+      : `Ollama did not start responding within ${seconds}s — it is likely still busy with another request. `
+        + 'Raise olliberty.queueTimeoutMs, or lower olliberty.agents.maxParallel so fewer requests queue at once.';
   }
 
   private formatHttpError(statusCode: number, statusMessage: string, responseBody: string): string {

@@ -241,8 +241,58 @@
           "type": "number",
           "default": 4096,
           "minimum": 512,
+          "maximum": 131072,
+          "description": "Maximum context length for conversations. Larger windows let a delegated run merge more sub-agent findings at once, at the cost of memory on the Ollama host."
+        },
+        "olliberty.timeoutMs": {
+          "type": "number",
+          "default": 90000,
+          "minimum": 5000,
+          "maximum": 600000,
+          "description": "Idle budget: how long a response that has already started streaming may go silent before it is treated as dead."
+        },
+        "olliberty.queueTimeoutMs": {
+          "type": "number",
+          "default": 600000,
+          "minimum": 10000,
+          "maximum": 3600000,
+          "description": "Queue budget: how long to wait for the model server’s first token. Ollama generates for one request per loaded model at a time, so a delegated agent can legitimately wait minutes here — this is not a hang."
+        },
+        "olliberty.agents.delegation": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "always",
+            "off"
+          ],
+          "enumDescriptions": [
+            "Auto: a router decides per request — short asks answer in one pass, substantial ones are split across sub-agents",
+            "Always: split every request that reaches the model",
+            "Off: only an explicit /agents command splits a request"
+          ],
+          "default": "auto",
+          "description": "When a request is split across sub-agents. Splitting is the default path, so it happens without typing /agents."
+        },
+        "olliberty.agents.maxCount": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Most sub-agents one request may be split across."
+        },
+        "olliberty.agents.maxParallel": {
+          "type": "number",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 5,
+          "description": "How many sub-agents may have a request in flight at once. The model server generates for one request at a time, so raising this mostly deepens its queue rather than adding parallelism."
+        },
+        "olliberty.agents.maxTokens": {
+          "type": "number",
+          "default": 900,
+          "minimum": 128,
           "maximum": 8192,
-          "description": "Maximum context length for conversations"
+          "description": "Answer budget per sub-agent. Sub-agents run with reasoning disabled, so the whole budget goes to their findings."
         },
         "olliberty.autoApplyEdits": {
           "type": "boolean",

@@ -73,12 +73,15 @@ export function renderAgents(agents: AgentRunView[], options: StatusOptions): st
         ? paint(glyphs.check, { fg: palette.green })
         : agent.status === 'failed'
           ? paint(glyphs.cross, { fg: palette.red })
-          : paint('·', { fg: palette.faint });
+          : agent.status === 'waiting'
+            ? paint(glyphs.waiting, { fg: palette.amber })
+            : paint('·', { fg: palette.faint });
 
     const name = paint(padEnd(agent.name, nameWidth), {
       fg: agent.status === 'running' ? palette.text : palette.muted
     });
-    const detail = agent.detail || (agent.status === 'queued' ? 'queued' : agent.status === 'running' ? agent.goal : '');
+    const detail = agent.detail
+      || (agent.status === 'queued' ? 'queued' : agent.status === 'running' ? agent.goal : '');
     const suffix = detail ? paint(` ${detail}`, { fg: palette.faint }) : '';
 
     return truncate(`  ${connector} ${marker} ${name}${suffix}`, options.width);

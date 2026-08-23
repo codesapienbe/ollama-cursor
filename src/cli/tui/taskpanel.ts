@@ -165,6 +165,10 @@ function statusMarker(task: AgentRunView, tick: number): string {
       return glyphs.check;
     case 'failed':
       return glyphs.cross;
+    /* Held back by the pool, not stuck: the model server takes one request at
+       a time, so this is the normal state for most of a fan-out. */
+    case 'waiting':
+      return glyphs.waiting;
     default:
       return glyphs.info;
   }
@@ -187,6 +191,7 @@ function progressBar(width: number, task: AgentRunView, tick: number, accent: Rg
     return fg(palette.border, glyphs.barTrack.repeat(cells));
   }
 
+
   const head = Math.max(2, Math.round(cells / 5));
   const start = tick % cells;
   const lit = new Set<number>();
@@ -207,6 +212,13 @@ function progressLabel(task: AgentRunView): string {
   if (task.status === 'queued') {
     return 'queued';
   }
+  if (task.status === 'waiting') {
+    return 'waiting';
+  }
+  /* A retry has to be visible, or the extra minute looks like a hang. */
+  if (task.status === 'running' && (task.attempt ?? 1) > 1) {
+    return `retry ${task.attempt}`;
+  }
   const chars = task.chars ?? 0;
   if (!chars) {
     if (task.status === 'running') {
@@ -222,7 +234,9 @@ function detailText(task: AgentRunView): string {
   if (detail) {
     return detail;
   }
-  return task.status === 'queued' ? `waiting · ${task.goal}` : task.goal;
+  return task.status === 'queued' || task.status === 'waiting'
+    ? `waiting · ${task.goal}`
+    : task.goal;
 }
 
 function elapsedLabel(task: AgentRunView): string {

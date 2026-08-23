@@ -63,6 +63,7 @@ export const glyphs = {
   cross: '✖',
   stop: '⏹',
   info: '•',
+  waiting: '◌',
   spinnerFrames: ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'],
   boxTopLeft: '╭',
   boxTopRight: '╮',

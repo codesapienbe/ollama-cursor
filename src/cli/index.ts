@@ -7,7 +7,14 @@
 
 import { OllamaClient } from '../main/client';
 import { ConversationStore } from '../main/conversationStore';
-import { AgentMode, ReasoningEffort, isAgentMode, isReasoningEffort } from '../main/core/settingsContract';
+import {
+  AgentMode,
+  DelegationMode,
+  ReasoningEffort,
+  isAgentMode,
+  isDelegationMode,
+  isReasoningEffort
+} from '../main/core/settingsContract';
 import { MultiAgentService } from '../main/multiAgentService';
 import { PlanService } from '../main/planService';
 import { TokenStore } from '../main/tokenStore';
@@ -151,6 +158,20 @@ function parseArgs(argv: string[]): ParsedArgs {
         parsed.overrides.mode = 'auto';
         parsed.overrides.autoApplyEdits = true;
         break;
+      case '--agents': {
+        const value = next(argument);
+        if (value) {
+          if (isDelegationMode(value)) {
+            parsed.overrides.delegation = value as DelegationMode;
+          } else {
+            parsed.errors.push(`--agents must be auto, always or off (got '${value}')`);
+          }
+        }
+        break;
+      }
+      case '--no-agents':
+        parsed.overrides.delegation = 'off';
+        break;
       case '--no-color':
         setColorDepth('none');
         break;
@@ -223,6 +244,8 @@ function helpText(version: string): string {
     '      --url <url>        Ollama LLM server URL (default http://localhost:11434)',
     '      --mode plan|auto   plan-first gate, or run immediately',
     '      --effort <level>   minimal | low | medium | high | max',
+    '      --agents <mode>    auto | always | off — when a request is split across sub-agents',
+    '      --no-agents        answer in one pass (same as --agents off)',
     '  -C, --cwd <dir>        treat this directory as the workspace',
     '  -y, --yes              auto mode and write approved edits without prompting',
     '      --no-stream        wait for the full response instead of streaming',
@@ -240,7 +263,8 @@ function helpText(version: string): string {
     'CONFIG',
     `  user     ${shortenPath(`${userDataDir()}/config.json`)}`,
     '  project  <workspace>/.olliberty/config.json',
-    '  env      OLLIBERTY_URL or OLLAMA_HOST, OLLIBERTY_MODEL, OLLIBERTY_MODE, OLLIBERTY_EFFORT',
+    '  env      OLLIBERTY_URL or OLLAMA_HOST, OLLIBERTY_MODEL, OLLIBERTY_MODE, OLLIBERTY_EFFORT,',
+    '           OLLIBERTY_DELEGATION',
     '',
     'Free software under GPL-3.0-or-later, with no warranty. Source and licence:',
     '  https://github.com/codesapienbe/olliberty'
@@ -267,7 +291,7 @@ function buildContainer(cwd: string, overrides: SettingsOverrides): Container {
   const activity = new CliActivityReporter(activityLogPath(workspaceRoot));
   const codeIndex = new FileCodeIndexStore(settings, workspaceRoot);
   const editService = new CliEditService(client, codeIndex, activity, workspaceRoot);
-  const multiAgentService = new MultiAgentService(client, codeIndex, activity);
+  const multiAgentService = new MultiAgentService(client, codeIndex, activity, settings);
   const planService = new PlanService(client, codeIndex, activity);
   const conversationStore = new ConversationStore(userDataDir(), resolveSqlJsWasmDir());
   const secretVault = new FileSecretVault(secretsPath());
