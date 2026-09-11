@@ -7,3 +7,6 @@ node_modules
 .olliberty/
 /.idea/
 /intellij-plugin/.kotlin/sessions/kotlin-compiler-*.salive
+
+# graphify knowledge graphs
+graphify-out/
